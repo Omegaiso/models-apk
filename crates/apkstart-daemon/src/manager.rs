@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
+use apkstart_app::SyncReport;
 use apkstart_core::{App, Config, Db, RuntimeStatus};
 use apkstart_engine::{AndroidEmulator, ScrcpyOptions, ScrcpySession};
 
@@ -10,14 +12,23 @@ use apkstart_engine::{AndroidEmulator, ScrcpyOptions, ScrcpySession};
 /// sin tomar el lock de sesiones para no bloquear otras llamadas.
 pub struct Manager {
     config: Config,
+    launcher: PathBuf,
     sessions: tokio::sync::Mutex<HashMap<String, ScrcpySession>>,
+    operation: tokio::sync::Mutex<()>,
 }
 
 impl Manager {
     pub fn new(config: Config) -> Self {
+        let launcher = std::env::current_exe()
+            .ok()
+            .map(|exe| exe.with_file_name("apkstart"))
+            .filter(|path| path.is_file())
+            .unwrap_or_else(|| PathBuf::from("apkstart"));
         Self {
             config,
+            launcher,
             sessions: tokio::sync::Mutex::new(HashMap::new()),
+            operation: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -32,6 +43,7 @@ impl Manager {
 
     /// Arranca el emulador y espera el boot completo. Operación larga.
     pub async fn start_runtime(&self) -> Result<RuntimeStatus, String> {
+        let _operation = self.operation.lock().await;
         let emulator = AndroidEmulator::new(self.config.clone());
         emulator.start().await.map_err(|error| error.to_string())?;
         Ok(self.runtime_status().await)
@@ -39,8 +51,14 @@ impl Manager {
 
     /// Detiene el emulador; las sesiones scrcpy mueren al perder ADB.
     pub async fn stop_runtime(&self) -> Result<RuntimeStatus, String> {
+        let _operation = self.operation.lock().await;
         let emulator = AndroidEmulator::new(self.config.clone());
         emulator.stop().await.map_err(|error| error.to_string())?;
+        let mut sessions = self.sessions.lock().await;
+        for (_, mut session) in sessions.drain() {
+            let _ = session.kill().await;
+        }
+        drop(sessions);
         Ok(self.runtime_status().await)
     }
 
@@ -48,6 +66,36 @@ impl Manager {
     pub async fn list_apps(&self) -> Result<Vec<App>, String> {
         let db = Db::open(&self.config.db_path()).map_err(|error| error.to_string())?;
         db.list_apps().map_err(|error| error.to_string())
+    }
+
+    /// Instala un APK y opcionalmente abre su ventana.
+    pub async fn install(&self, path: &str, launch_after: bool) -> Result<String, String> {
+        let _operation = self.operation.lock().await;
+        let installed = apkstart_app::install_apk(
+            &self.config,
+            std::path::Path::new(path),
+            &self.launcher,
+            true,
+        )
+        .await
+        .map_err(|error| format!("{error:#}"))?;
+        let package = installed.app.package;
+        if launch_after {
+            self.launch(&package).await?;
+        }
+        Ok(package)
+    }
+
+    /// Sincroniza apps Android con el escritorio. No falla si el runtime está apagado.
+    pub async fn sync(&self, refresh: bool) -> Result<SyncReport, String> {
+        let _operation = self.operation.lock().await;
+        let emulator = AndroidEmulator::new(self.config.clone());
+        if !emulator.is_online().await {
+            return Ok(SyncReport::default());
+        }
+        apkstart_app::sync_apps(&self.config, refresh, true, &self.launcher)
+            .await
+            .map_err(|error| format!("{error:#}"))
     }
 
     /// Abre la ventana scrcpy de un package y devuelve el pid de scrcpy.

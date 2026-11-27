@@ -49,6 +49,17 @@ impl Daemon {
         apps_json(&apps)
     }
 
+    /// Instala un APK; devuelve el package instalado.
+    async fn install(&self, path: String, launch: bool) -> Result<String, fdo::Error> {
+        self.manager.install(&path, launch).await.map_err(failed)
+    }
+
+    /// Sincroniza apps Android; devuelve (añadidas, eliminadas).
+    async fn sync(&self, refresh: bool) -> Result<(u32, u32), fdo::Error> {
+        let report = self.manager.sync(refresh).await.map_err(failed)?;
+        Ok((report.added as u32, report.removed as u32))
+    }
+
     /// Abre la ventana de un package; devuelve el pid de scrcpy.
     async fn launch(&self, package: String) -> Result<u32, fdo::Error> {
         self.manager.launch(&package).await.map_err(failed)

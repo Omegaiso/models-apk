@@ -4,6 +4,7 @@ members = [
     "crates/apkstart-core",
     "crates/apkstart-apk",
     "crates/apkstart-engine",
+    "crates/apkstart-app",
     "crates/apkstart-daemon",
     "crates/apkstart-cli",
 ]
@@ -19,6 +20,7 @@ authors = ["ApkStart contributors"]
 apkstart-core = { path = "crates/apkstart-core" }
 apkstart-apk = { path = "crates/apkstart-apk" }
 apkstart-engine = { path = "crates/apkstart-engine" }
+apkstart-app = { path = "crates/apkstart-app" }
 apkstart-daemon = { path = "crates/apkstart-daemon" }
 
 anyhow = "1.0"

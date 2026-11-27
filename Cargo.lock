@@ -152,11 +152,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "apkstart-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "apkstart-apk",
+ "apkstart-core",
+ "apkstart-engine",
+ "tokio",
+]
+
+[[package]]
 name = "apkstart-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "apkstart-apk",
+ "apkstart-app",
  "apkstart-core",
  "apkstart-engine",
  "clap",
@@ -186,6 +198,7 @@ dependencies = [
 name = "apkstart-daemon"
 version = "0.1.0"
 dependencies = [
+ "apkstart-app",
  "apkstart-core",
  "apkstart-engine",
  "serde_json",

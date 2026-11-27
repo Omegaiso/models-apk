@@ -5,6 +5,7 @@
 //! a mano y todavía no instala unidades de systemd.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use apkstart_core::Config;
 use apkstart_daemon::dbus::Daemon;
@@ -23,7 +24,19 @@ async fn main() {
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let config = Config::load()?;
     let manager = Arc::new(Manager::new(config));
-    let daemon = Daemon::new(manager);
+    let daemon = Daemon::new(Arc::clone(&manager));
+
+    let sync_manager = Arc::clone(&manager);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(15));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            if let Err(error) = sync_manager.sync(false).await {
+                tracing::warn!(%error, "sync automático falló");
+            }
+        }
+    });
 
     // Sin esta referencia la conexión (y el nombre) se liberan al salir de aquí.
     let _connection = zbus::connection::Builder::session()

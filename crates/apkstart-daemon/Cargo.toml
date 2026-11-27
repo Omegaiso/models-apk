@@ -12,6 +12,7 @@ name = "apkstartd"
 path = "src/main.rs"
 
 [dependencies]
+apkstart-app.workspace = true
 apkstart-core.workspace = true
 apkstart-engine.workspace = true
 serde_json.workspace = true

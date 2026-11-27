@@ -1,0 +1,15 @@
+[package]
+name = "apkstart-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Instalación, registro y sincronización de apps Android"
+
+[dependencies]
+anyhow.workspace = true
+apkstart-apk.workspace = true
+apkstart-core.workspace = true
+apkstart-engine.workspace = true
+tokio.workspace = true

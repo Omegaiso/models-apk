@@ -85,7 +85,7 @@
 - [x] Arranque headless sin escritorio Android
 - [x] Una ventana Wayland por app con título y `app_id` único (`SDL_APP_ID`)
 - [x] Instalar APK desde el gestor de archivos (MIME) y por doble clic (`apkstart setup`)
-- [x] Sincronización automática de apps instaladas dentro de Android (timer systemd --user de 15 s)
+- [x] Sincronización automática de apps instaladas dentro de Android (bucle del daemon cada 15 s; timer como respaldo)
 - [x] Clasificación de apps Android en categorías freedesktop (Internet, Juegos, Multimedia, etc.)
 - [x] Ejecución `./app.apk` vía `binfmt_misc` (script incluido; requiere root)
 - [x] Licencia MIT
@@ -113,7 +113,7 @@
 
 | Fase | Alcance | Estado |
 |---|---|---|
-| 1 | `apkstartd` + D-Bus `org.apkstart.Manager1`, sesiones, systemd --user, CLI cliente, sustituir el timer | Parcial: daemon mínimo y `launch`/`stop` integrados |
+| 1 | `apkstartd` + D-Bus `org.apkstart.Manager1`, sesiones, systemd --user, CLI cliente, sustituir el timer | Parcial: daemon integra runtime, install, sync, launch, stop y sync loop; faltan sesiones/adopción |
 | 2 | UI GTK4/libadwaita: runtime, apps, instalar/desinstalar, ajustes, diagnóstico | Pendiente |
 | 3 | Ventanas: persistencia de tamaño/estado, viewer propio o wrapper, límite multi-app, activity e iconos adaptativos | Parcial |
 | 4 | Integración: notificaciones bridge, carpeta compartida, red/proxy/DNS, portapapeles/audio, cámara/micrófono/gamepad/USB | Pendiente |
@@ -298,6 +298,39 @@
 - `launch` con opciones de tamaño/título por D-Bus y `stop` de sesiones abiertas en modo directo.
 - Tests D-Bus y de sesiones; empaquetado definitivo.
 
+### 2026-11-27 — El daemon asume install/sync y se retira el timer
+
+**Implementado**
+- Nuevo crate `apkstart-app` con la lógica compartida `install_apk`, `register_app_from_apk` y `sync_apps`; CLI y daemon ya no duplican el flujo.
+- `apkstartd` incorpora `Install(path, launch)` y `Sync(refresh)` a D-Bus.
+- `Manager` serializa install/sync con un lock; el daemon sincroniza cada 15 s y no falla si el runtime está apagado.
+- `apkstart setup` instala/activa el daemon y **elimina el timer antiguo**; si el daemon no está disponible, deja el timer como respaldo.
+- `apkstart install`, `install --launch`, `sync`, `launch` y `stop` usan el daemon cuando está; si no, install/sync/launch caen al modo directo compartido.
+- `packaging/install.sh` instala `apkstartd`, la unit de usuario y el service file D-Bus.
+- La activación D-Bus usa `systemctl --user start apkstartd.service`, por lo que el daemon queda bajo systemd (no como proceso huérfano).
+
+**Verificación**
+- `apkstart setup` deja `apkstartd.service` activo y `apkstart-sync.timer` inactivo/eliminado.
+- `busctl` muestra `Install`, `Sync`, `Launch`, `StopApp`.
+- `apkstart sync` responde `Apps añadidas: 0; eliminadas: 0` por D-Bus.
+- `apkstart install --launch /tmp/opencode/F-Droid.apk` instala y abre; `apkstart stop org.fdroid.fdroid` cierra la sesión del daemon.
+- `cargo test --workspace` verde (11+7+19+2; app/daemon sin tests propios), `clippy -D warnings` limpio.
+
+**Pendiente**
+- Tabla `sessions` (v3) y adopción de scrcpy tras reiniciar el daemon.
+- `Launch` con tamaño/título por D-Bus; stop de sesiones abiertas en modo directo.
+- Tests de integración D-Bus y de sesiones.
+
+### 2026-11-27 — Runtime y parada a través del daemon
+
+- `apkstart runtime status/start/stop` usan `apkstartd` cuando está disponible; si no, mantienen el camino directo.
+- `Manager` serializa start/stop/install/sync con un lock de operación para que el bucle de sync no compita con el arranque o la parada.
+- `StopRuntime` limpia las sesiones scrcpy del daemon.
+- El timeout de parada del emulador sube de 20 s a 60 s: con quickboot, guardar el snapshot puede tardar más. Verificado: parada real en ~15 s.
+- Verificación: `runtime status` por D-Bus, `runtime start` (~10 s con quickboot), `runtime stop` (~15 s), `launch`/`stop` de F-Droid; todo por el daemon.
+- Pendiente: tabla `sessions` v3, adopción de scrcpy y tests D-Bus.
+
+
 ---
 
 ## 6. Bloqueos y riesgos activos
@@ -312,10 +345,10 @@
 | Input sintético en KDE Wayland | Activo | Validar manualmente; para automatizar, usar XWayland o cargar `uinput` con permiso |
 | Identidad de ventana (`app_id`) única por app | Resuelto | `SDL_APP_ID=io.github.apkstart.<pkg>` + `.desktop` con el mismo nombre y `StartupWMClass` |
 | Icono de alta resolución / adaptive icons | Activo | Se usa el bitmap si existe; si solo hay vectorial, fallback PNG con inicial. Falta renderizar el adaptive real y elegir la máxima densidad |
-| Timer de sincronización atado al binario | Conocido | `setup` genera el unit con la ruta actual; repetir `setup` si se mueve el binario |
+| Timer de sincronización atado al binario | Resuelto en gran parte | El daemon hace el sync; el timer solo queda como respaldo si `apkstartd` no está. Repetir `setup` si se mueve el binario. |
 | `./app.apk` requiere root y binfmt | Conocido | Script `packaging/binfmt/install.sh`; no se registró en esta sesión |
 | Activity principal | Activo | `apk-info` devuelve la primera activity de launcher (`IconActivity` en F-Droid); `scrcpy --start-app` funciona, pero la metadata debe corregirse |
-| Daemon y D-Bus | Pendiente | El CLI llama al motor directamente; el siguiente bloque crea `apkstartd` y mueve la lógica allí |
+| Daemon y D-Bus | Parcial | `apkstartd` ya hace runtime/install/sync/launch/stop y sync loop; faltan tabla `sessions` y adopción de scrcpy |
 | Android 15+ endurece displays virtuales | Conocido | Fijar API 34; imagen Google APIs para permitir `adb root` |
 | Imagen Play no redistribuible | Conocido | No empaquetar; descarga y aceptación por el usuario |
 | `FLAG_SECURE` / DRM / anticheat | Conocido | Documentar; no prometer compatibilidad |

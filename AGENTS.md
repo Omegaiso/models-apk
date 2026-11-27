@@ -3,9 +3,9 @@
 ## Contexto que no se deduce de los nombres
 
 - Proyecto/repo: **models-apk** (`github.com/Omegaiso/models-apk`). Los identificadores internos siguen siendo `apkstart-*` y el binario `apkstart`; no hagas un rename masivo sin migrar configuración, SQLite, `.desktop` y `app_id`.
-- El repo implementa hoy **cinco crates**: `apkstart-core`, `apkstart-apk`, `apkstart-engine`, `apkstart-daemon` (`apkstartd`) y `apkstart-cli`.
+- El repo implementa hoy **seis crates**: `apkstart-core`, `apkstart-apk`, `apkstart-engine`, `apkstart-app`, `apkstart-daemon` (`apkstartd`) y `apkstart-cli`.
 - `docs/plan-inicial/` describe el diseño completo. **Aún no existen** `apkstart-settings` (GTK4), `apkstart-viewer` propio ni `apkstart-integration`.
-- `apkstartd` expone un D-Bus mínimo (`org.apkstart.Manager1`): runtime status/start/stop, listar, lanzar y cerrar app. `launch`/`stop` del CLI lo usan si está disponible y caen al modo directo si no. `install`, `sync` y el timer siguen siendo directos; el daemon aún no hace sync ni persiste sesiones.
+- `apkstartd` expone D-Bus (`org.apkstart.Manager1`): runtime status/start/stop, listar, instalar, sincronizar, lanzar y cerrar app. `install`, `sync`, `launch` y `stop` del CLI lo usan si está disponible y caen al modo directo si no. El daemon tiene un bucle de sync cada 15 s; el timer antiguo se retira al activarlo. Aún no persiste sesiones/adopta scrcpy.
 - Motor fijado para el MVP: **Android Emulator oficial + API 34 x86_64 `google_apis`**. Prioridad: estabilidad y usabilidad. No migrar a QEMU puro/Waydroid ni introducir Electron/Node/Java en el producto host (el SDK/`sdkmanager` puede usar Java como herramienta).
 - La bitácora vigente es **`docs/bitacora/bitacora.md`**. Es append-only: al cerrar un bloque añade una entrada; no reescribas el historial.
 
@@ -61,8 +61,8 @@ target/debug/apkstart runtime stop
 - **APK:** el parser es `apk-info` (Apache-2.0), no un AXML propio. Entradas: `read_apk`, `read_icon` y `read_resource`.
 - **Activity:** `apk-info` devuelve la primera activity de launcher; en F-Droid sale `IconActivity`. `scrcpy --start-app` abre bien, pero no asumas que `App.activity` es la principal.
 - **Iconos:** se guardan en la carpeta hicolor según el tamaño del PNG (48×48 → `hicolor/48x48`); adaptive icons y elegir la máxima densidad siguen pendientes.
-- **Integración APK:** `apkstart setup` crea `~/.local/share/applications/io.github.apkstart.install.desktop`, fija el handler MIME con `xdg-mime` y activa un timer de `systemd --user` cada 15 s (`apkstart-sync.timer`). El doble clic ejecuta `install --launch %f` con `Terminal=true`.
-- **Sincronización:** el timer (o `apkstart sync`) lista los paquetes Android `-3`, extrae el APK base a `~/.local/share/apkstart/cache`, crea `.desktop`/icono y borra entradas de apps desinstaladas. `--refresh` vuelve a registrar todas; `--if-running --quiet` es para el timer. Es la forma en que aparecen en el escritorio las apps instaladas desde F-Droid.
+- **Integración APK:** `apkstart setup` crea `~/.local/share/applications/io.github.apkstart.install.desktop`, fija el handler MIME con `xdg-mime`, instala/activa `apkstartd` y retira el timer antiguo `apkstart-sync.timer`. El doble clic ejecuta `install --launch %f` con `Terminal=true`.
+- **Sincronización:** `apkstartd` lista los paquetes Android `-3` cada 15 s, extrae el APK base a `~/.local/share/apkstart/cache`, crea `.desktop`/icono y borra entradas de apps desinstaladas. `apkstart sync` usa el daemon; `--refresh` re-registra todas. Si el daemon no está, `setup` deja el timer como respaldo y el CLI sincroniza directo (`--if-running --quiet`).
 - **`./app.apk` / instalación:** `packaging/install.sh` (root) instala el binario y registra `binfmt_misc` automáticamente. Cualquier paquete de distro debe ejecutar el mismo hook en `postinst`; no pidas al usuario el comando manual (ver `packaging/README.md`). El wrapper llama a `apkstart install --launch` como el usuario, no como root. No ejecutes el instalador en tests.
 - **Iconos de respaldo:** si el APK solo trae un adaptive icon vectorial (o no trae bitmap), se genera un PNG 256×256 con la inicial y un color estable. No es el icono adaptativo real.
 - **RAM:** en el host de desarrollo (14 GB) el guest va a 3 GB. No subir sin medir; el emulador compite con compilaciones.
@@ -73,8 +73,9 @@ target/debug/apkstart runtime stop
 - `apkstart-core`: `Config`, `Db`, modelos, `.desktop`/iconos, errores.
 - `apkstart-apk`: wrapper de `apk-info`; `read_apk`, `read_resource`.
 - `apkstart-engine`: `AndroidEmulator` (checks/arranque/parada), `Adb`, `ScrcpySession`.
-- `apkstart-daemon`: `Manager` (sesiones scrcpy en memoria) + `apkstartd` D-Bus; no hace install/sync todavía.
-- `apkstart-cli`: binario `apkstart`; `src/daemon.rs` es el cliente D-Bus mínimo.
+- `apkstart-app`: install/registro/sync compartido entre CLI y daemon; aquí vive `register_app_from_apk` y `sync_apps`.
+- `apkstart-daemon`: `Manager` (sesiones scrcpy en memoria, install/sync con lock) + `apkstartd` D-Bus y bucle de sync.
+- `apkstart-cli`: binario `apkstart`; `src/daemon.rs` es el cliente D-Bus con fallback directo.
 - Documentación y mensajes de usuario en español; identificadores y código en inglés.
 
 ## Documentos

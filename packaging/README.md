@@ -35,20 +35,19 @@ El script de binfmt instala `/etc/binfmt.d/models-apk.conf` y `/usr/local/bin/ap
 
 ## Integración por usuario
 
-El registro MIME por defecto (`xdg-mime`) y el timer de sincronización son por usuario. El paquete puede instalar el `.desktop` del handler en `/usr/share/applications/`, pero cada usuario debe ejecutar una vez:
+El registro MIME por defecto (`xdg-mime`) y el servicio `apkstartd` son por usuario. El paquete puede instalar el `.desktop` del handler en `/usr/share/applications/`, pero cada usuario debe ejecutar una vez:
 
 ```bash
 apkstart setup
 ```
 
-Eso registra el handler MIME, activa `apkstart-sync.timer`, instala el servicio de usuario `apkstartd.service` (D-Bus) y sincroniza las apps ya instaladas. En una versión futura, `apkstartd` hará el sync sin timer.
+Eso registra el handler MIME, instala/activa `apkstartd.service` (D-Bus), retira el timer antiguo y sincroniza las apps ya instaladas. El daemon hace el sync cada 15 s.
 
 ## Verificación
 
 ```bash
 cat /proc/sys/fs/binfmt_misc/models-apk
 xdg-mime query default application/vnd.android.package-archive
-systemctl --user status apkstart-sync.timer
 systemctl --user status apkstartd.service
 busctl --user call org.apkstart.Manager1 /org/apkstart/Manager1 org.apkstart.Manager1 GetVersion
 ```

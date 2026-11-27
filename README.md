@@ -63,7 +63,7 @@ cargo run -p apkstart-cli -- doctor
 cargo build --release --locked
 sudo packaging/install.sh          # /usr/local
 # o: PREFIX=/usr sudo packaging/install.sh
-apkstart setup                     # MIME/timer del usuario actual
+apkstart setup                     # MIME y daemon del usuario actual
 ```
 
 `packaging/install.sh` registra **automáticamente** `binfmt_misc` para que `./app.apk` funcione; no se debe pedir al usuario el comando manual. Los paquetes de distro deben ejecutar el mismo hook en `postinst` (ver [`packaging/README.md`](packaging/README.md)).
@@ -98,7 +98,7 @@ cargo run -p apkstart-cli -- stop com.example.app
 - `install` crea una entrada `.desktop` y un icono en `~/.local/share`; la app aparece en el menú y en el escritorio como una app más.
 - Las apps se clasifican en categorías freedesktop (`Network;WebBrowser;`, `Game;`, `AudioVideo;`, `Office;`, `System;`…) usando `android:appCategory` y heurísticas de package/label.
 - `setup` registra el handler MIME `application/vnd.android.package-archive`: al hacer doble clic en un APK descargado desde el navegador se instala y se abre. En el MVP se abre una terminal para ver el progreso.
-- `setup` también activa un timer de `systemd --user` cada 15 s que sincroniza las apps instaladas **dentro** de Android (por ejemplo desde F-Droid) con el escritorio Linux. Si el timer no está disponible, ejecuta `apkstart sync` o `apkstart sync --refresh`.
+- `setup` instala y activa `apkstartd`; el daemon sincroniza cada 15 s las apps instaladas **dentro** de Android (por ejemplo desde F-Droid) con el escritorio Linux. El timer antiguo se elimina cuando el daemon arranca; si no está disponible, queda el timer como respaldo. También puedes forzar `apkstart sync` o `apkstart sync --refresh`.
 - Las apps con icono vectorial/adaptive sin bitmap usan un icono de respaldo con su inicial; el icono adaptativo completo queda pendiente.
 - Para ejecutar un APK como un binario (`./app.apk`), Linux necesita `binfmt_misc` y permisos de ejecución. En una instalación completa, `packaging/install.sh` lo registra automáticamente. Solo para desarrollo sin instalar:
 

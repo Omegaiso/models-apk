@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 apkstart-apk.workspace = true
+apkstart-app.workspace = true
 apkstart-core.workspace = true
 apkstart-engine.workspace = true
 anyhow.workspace = true

@@ -310,14 +310,15 @@ impl AndroidEmulator {
             return Ok(());
         }
         adb.emu_kill().await?;
-        for _ in 0..40 {
+        // El apagado con quickboot puede tardar en guardar el snapshot.
+        for _ in 0..120 {
             if !adb.is_online().await {
                 return Ok(());
             }
             sleep(Duration::from_millis(500)).await;
         }
         Err(Error::Timeout(
-            "el emulador sigue online después de adb emu kill".to_string(),
+            "el emulador sigue online 60 s después de adb emu kill".to_string(),
         ))
     }
 }
