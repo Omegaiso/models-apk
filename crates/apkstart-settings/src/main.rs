@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Sender};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
@@ -37,7 +39,23 @@ struct ResourceReport {
     processes: Vec<ResourceProcess>,
     total_cpu: f32,
     total_rss_kb: u64,
+    host_cpus: usize,
+    gpus: Vec<GpuReport>,
 }
+
+struct GpuReport {
+    name: String,
+    busy: u8,
+    vram_used: u64,
+    vram_total: u64,
+}
+
+struct CpuSnapshot {
+    total: u64,
+    pids: HashMap<u32, u64>,
+}
+
+static CPU_SAMPLE: OnceLock<Mutex<Option<CpuSnapshot>>> = OnceLock::new();
 
 fn build_ui(app: &adw::Application) {
     let window = gtk::ApplicationWindow::builder()
@@ -73,7 +91,10 @@ fn build_ui(app: &adw::Application) {
     let resources_summary = gtk::Label::new(Some("Recursos: consultando…"));
     resources_summary.set_xalign(0.0);
     resources_summary.set_wrap(true);
-    let resources = build_resources(&tx, &resources_list, &resources_summary);
+    let gpu_summary = gtk::Label::new(Some("GPU: consultando…"));
+    gpu_summary.set_xalign(0.0);
+    gpu_summary.set_wrap(true);
+    let resources = build_resources(&tx, &resources_list, &resources_summary, &gpu_summary);
 
     let doctor_view = gtk::TextView::new();
     doctor_view.set_editable(false);
@@ -142,10 +163,12 @@ fn build_ui(app: &adw::Application) {
     window.present();
 
     let tx_handler = tx.clone();
+    let window_for_handler = window.clone();
     let status_for_handler = status_label.clone();
     let apps_for_handler = apps_list.clone();
     let resources_list_for_handler = resources_list.clone();
     let resources_summary_for_handler = resources_summary.clone();
+    let gpu_summary_for_handler = gpu_summary.clone();
     let doctor_for_handler = doctor_view.clone();
     let toast_for_handler = toast_overlay.clone();
     gtk::glib::timeout_add_local(Duration::from_millis(100), move || {
@@ -162,7 +185,9 @@ fn build_ui(app: &adw::Application) {
                     }
                 },
                 Msg::Apps(result) => match result {
-                    Ok(apps) => fill_apps(&apps_for_handler, &apps, &tx_handler),
+                    Ok(apps) => {
+                        fill_apps(&apps_for_handler, &apps, &tx_handler, &window_for_handler)
+                    }
                     Err(error) => {
                         clear_list(&apps_for_handler);
                         apps_for_handler.append(&error_row(&error));
@@ -173,6 +198,7 @@ fn build_ui(app: &adw::Application) {
                         fill_resources(
                             &resources_list_for_handler,
                             &resources_summary_for_handler,
+                            &gpu_summary_for_handler,
                             &report,
                         );
                     }
@@ -331,7 +357,12 @@ fn build_apps(
     page.upcast()
 }
 
-fn build_resources(tx: &Sender<Msg>, list: &gtk::ListBox, summary: &gtk::Label) -> gtk::Widget {
+fn build_resources(
+    tx: &Sender<Msg>,
+    list: &gtk::ListBox,
+    summary: &gtk::Label,
+    gpu_summary: &gtk::Label,
+) -> gtk::Widget {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 12);
     page.set_margin_top(18);
     page.set_margin_bottom(18);
@@ -351,8 +382,11 @@ fn build_resources(tx: &Sender<Msg>, list: &gtk::ListBox, summary: &gtk::Label) 
     summary.add_css_class("dim-label");
     page.append(summary);
 
+    gpu_summary.add_css_class("dim-label");
+    page.append(gpu_summary);
+
     let note = gtk::Label::new(Some(
-        "btop y el monitor muestran apkstartd, qemu y scrcpy por separado; esta vista agrupa el proyecto models-apk.",
+        "CPU >100% es normal: suma hilos y equivale a varios núcleos. La GPU se muestra global; el kernel no la atribuye por proceso. btop muestra apkstartd, qemu y scrcpy por separado; esta vista los agrupa.",
     ));
     note.set_xalign(0.0);
     note.set_wrap(true);
@@ -369,14 +403,40 @@ fn build_resources(tx: &Sender<Msg>, list: &gtk::ListBox, summary: &gtk::Label) 
     page.upcast()
 }
 
-fn fill_resources(list: &gtk::ListBox, summary: &gtk::Label, report: &ResourceReport) {
+fn fill_resources(
+    list: &gtk::ListBox,
+    summary: &gtk::Label,
+    gpu_summary: &gtk::Label,
+    report: &ResourceReport,
+) {
     clear_list(list);
     summary.set_text(&format!(
-        "Total models-apk: {:.1}% CPU medio · {:.1} MiB RAM · {} procesos",
+        "Total models-apk: {:.1}% CPU (~{:.1} de {} hilos) · {:.1} MiB RAM · {} procesos",
         report.total_cpu,
+        report.total_cpu / 100.0,
+        report.host_cpus,
         report.total_rss_kb as f64 / 1024.0,
         report.processes.len()
     ));
+    if report.gpus.is_empty() {
+        gpu_summary.set_text("GPU: sin métricas sysfs disponibles");
+    } else {
+        let lines = report
+            .gpus
+            .iter()
+            .map(|gpu| {
+                format!(
+                    "{}: {}% · VRAM {:.2}/{:.2} GiB",
+                    gpu.name,
+                    gpu.busy,
+                    gpu.vram_used as f64 / 1_073_741_824.0,
+                    gpu.vram_total as f64 / 1_073_741_824.0
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        gpu_summary.set_text(&format!("GPU global (no por proceso):\n{lines}"));
+    }
 
     let header = gtk::Label::new(Some(&format!(
         "{:<24} {:>7} {:>8} {:>10}",
@@ -432,13 +492,13 @@ fn resource_report() -> Result<ResourceReport, String> {
         let Some(pid) = fields.next().and_then(|value| value.parse::<u32>().ok()) else {
             continue;
         };
-        let Some(comm) = fields.next() else {
+        let Some(_comm) = fields.next() else {
             continue;
         };
         let Some(rss_kb) = fields.next().and_then(|value| value.parse::<u64>().ok()) else {
             continue;
         };
-        let Some(cpu) = fields.next().and_then(|value| value.parse::<f32>().ok()) else {
+        let Some(average_cpu) = fields.next().and_then(|value| value.parse::<f32>().ok()) else {
             continue;
         };
         let args = fields.collect::<Vec<_>>().join(" ");
@@ -459,11 +519,40 @@ fn resource_report() -> Result<ResourceReport, String> {
         processes.push(ResourceProcess {
             pid,
             name: name.to_string(),
-            cpu,
+            cpu: average_cpu,
             rss_kb,
         });
-        let _ = comm;
     }
+
+    let host_cpus = thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1);
+    let total_ticks = read_total_cpu_ticks();
+    let pids_now = processes
+        .iter()
+        .filter_map(|process| read_pid_cpu_ticks(process.pid).map(|ticks| (process.pid, ticks)))
+        .collect::<HashMap<_, _>>();
+    if let Ok(mut sample) = CPU_SAMPLE.get_or_init(|| Mutex::new(None)).lock() {
+        if let Some(previous) = sample.as_ref() {
+            let delta_total = total_ticks.saturating_sub(previous.total) as f32;
+            if delta_total > 0.0 {
+                for process in &mut processes {
+                    if let (Some(now), Some(before)) =
+                        (pids_now.get(&process.pid), previous.pids.get(&process.pid))
+                    {
+                        process.cpu = now.saturating_sub(*before) as f32 / delta_total
+                            * host_cpus as f32
+                            * 100.0;
+                    }
+                }
+            }
+        }
+        *sample = Some(CpuSnapshot {
+            total: total_ticks,
+            pids: pids_now,
+        });
+    }
+
     processes.sort_by(|left, right| left.name.cmp(&right.name));
     let total_cpu = processes.iter().map(|process| process.cpu).sum();
     let total_rss_kb = processes.iter().map(|process| process.rss_kb).sum();
@@ -471,7 +560,79 @@ fn resource_report() -> Result<ResourceReport, String> {
         processes,
         total_cpu,
         total_rss_kb,
+        host_cpus,
+        gpus: gpu_report(),
     })
+}
+
+fn read_total_cpu_ticks() -> u64 {
+    let Ok(stat) = fs::read_to_string("/proc/stat") else {
+        return 0;
+    };
+    stat.lines()
+        .next()
+        .and_then(|line| line.strip_prefix("cpu "))
+        .map(|values| {
+            values
+                .split_whitespace()
+                .filter_map(|value| value.parse::<u64>().ok())
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+fn read_pid_cpu_ticks(pid: u32) -> Option<u64> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let end = stat.rfind(')')?;
+    let fields = stat[end + 2..].split_whitespace().collect::<Vec<_>>();
+    let utime = fields.get(11)?.parse::<u64>().ok()?;
+    let stime = fields.get(12)?.parse::<u64>().ok()?;
+    Some(utime + stime)
+}
+
+fn gpu_report() -> Vec<GpuReport> {
+    let Ok(entries) = fs::read_dir("/sys/class/drm") else {
+        return Vec::new();
+    };
+    let mut gpus = Vec::new();
+    for entry in entries.flatten() {
+        let card = entry.file_name().to_string_lossy().into_owned();
+        if !card.starts_with("card") || card.contains('-') {
+            continue;
+        }
+        let device = entry.path().join("device");
+        let Some(busy) = fs::read_to_string(device.join("gpu_busy_percent"))
+            .ok()
+            .and_then(|value| value.trim().parse::<u8>().ok())
+        else {
+            continue;
+        };
+        let vram_used = fs::read_to_string(device.join("mem_info_vram_used"))
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        let vram_total = fs::read_to_string(device.join("mem_info_vram_total"))
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        let name = fs::read_to_string(device.join("uevent"))
+            .ok()
+            .and_then(|uevent| {
+                uevent
+                    .lines()
+                    .find_map(|line| line.strip_prefix("PCI_ID=").map(str::to_string))
+            })
+            .map(|pci| format!("GPU {pci}"))
+            .unwrap_or(card);
+        gpus.push(GpuReport {
+            name,
+            busy,
+            vram_used,
+            vram_total,
+        });
+    }
+    gpus.sort_by(|left, right| left.name.cmp(&right.name));
+    gpus
 }
 
 fn is_project_process(args: &str) -> bool {
@@ -630,7 +791,7 @@ fn build_about() -> gtk::Widget {
     page.upcast()
 }
 
-fn fill_apps(list: &gtk::ListBox, apps: &[App], tx: &Sender<Msg>) {
+fn fill_apps(list: &gtk::ListBox, apps: &[App], tx: &Sender<Msg>, window: &gtk::ApplicationWindow) {
     clear_list(list);
     if apps.is_empty() {
         list.append(&error_row(
@@ -671,8 +832,55 @@ fn fill_apps(list: &gtk::ListBox, apps: &[App], tx: &Sender<Msg>) {
         text.append(&name);
         text.append(&meta);
 
+        let details = gtk::Button::with_label("Detalles");
         let open = gtk::Button::with_label("Abrir");
         let stop = gtk::Button::with_label("Cerrar");
+        let app_details = app.clone();
+        let window_details = window.clone();
+        let tx_details = tx.clone();
+        details.connect_clicked(move |_| {
+            let text = format!(
+                "{}\n\nPackage: {}\nVersión: {} ({})\nActivity: {}\nMin SDK: {}\nTarget SDK: {}\nABIs: {}\nCategorías: {}\nAPK: {}",
+                app_details.label,
+                app_details.package,
+                app_details.version_name.as_deref().unwrap_or("-"),
+                app_details.version_code,
+                app_details.activity.as_deref().unwrap_or("-"),
+                app_details.min_sdk.unwrap_or(0),
+                app_details.target_sdk.unwrap_or(0),
+                if app_details.abis.is_empty() {
+                    "ninguna".to_string()
+                } else {
+                    app_details.abis.join(", ")
+                },
+                app_details.categories.join(", "),
+                app_details
+                    .apk_path
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "-".to_string())
+            );
+            let dialog = gtk::MessageDialog::new(
+                Some(&window_details),
+                gtk::DialogFlags::MODAL,
+                gtk::MessageType::Info,
+                gtk::ButtonsType::None,
+                &text,
+            );
+            dialog.set_title(Some(&app_details.label));
+            dialog.add_button("Cerrar", gtk::ResponseType::Close);
+            dialog.add_button("Desinstalar", gtk::ResponseType::Accept);
+            let package = app_details.package.clone();
+            let tx_uninstall = tx_details.clone();
+            dialog.connect_response(move |dialog, response| {
+                if response == gtk::ResponseType::Accept {
+                    spawn_action(tx_uninstall.clone(), &["uninstall", &package]);
+                }
+                dialog.close();
+            });
+            dialog.present();
+        });
+
         let package = app.package.clone();
         let tx_open = tx.clone();
         open.connect_clicked(move |_| {
@@ -686,6 +894,7 @@ fn fill_apps(list: &gtk::ListBox, apps: &[App], tx: &Sender<Msg>) {
 
         content.append(&icon);
         content.append(&text);
+        content.append(&details);
         content.append(&open);
         content.append(&stop);
         row.set_child(Some(&content));

@@ -360,6 +360,8 @@
 - `apkstartd.service` entra en `models-apk.slice` con CPU/Memory/IO accounting; `systemd-cgls --user` y `systemd-cgtop -1 -b --depth=5` muestran el agregado aunque btop liste los procesos por nombre.
 - La pestaña **Logs en vivo** de Diagnóstico mezcla `journalctl -u apkstartd`, `emulator.log` y la última sesión, actualizando cada 2 s; Doctor sigue siendo una foto bajo demanda.
 - Verificado en la UI: `Total models-apk: 9.6% CPU medio · 149.0 MiB RAM · 3 procesos` con runtime parado (daemon + ADB + UI).
+- CPU corregida a **instantánea** (deltas de `/proc/stat` y `/proc/<pid>/stat`) y total normalizado a hilos: `283%` = ~2,8 de 12 hilos, no un error.
+- GPU añadida como **global** desde sysfs AMD (`gpu_busy_percent`, `mem_info_vram_*`); el kernel no la atribuye por proceso. En este host se ven las dos GPUs (iGPU Rembrandt y RX 6400) con su VRAM.
 
 
 ---
