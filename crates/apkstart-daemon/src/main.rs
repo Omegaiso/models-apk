@@ -38,6 +38,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     });
 
+    let cleanup_manager = Arc::clone(&manager);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(5));
+        interval.tick().await;
+        loop {
+            interval.tick().await;
+            cleanup_manager.cleanup_dead_sessions().await;
+        }
+    });
+
     // Sin esta referencia la conexión (y el nombre) se liberan al salir de aquí.
     let _connection = zbus::connection::Builder::session()
         .name("org.apkstart.Manager1")

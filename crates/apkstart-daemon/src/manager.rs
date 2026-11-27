@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 
 use apkstart_app::SyncReport;
@@ -106,7 +107,10 @@ impl Manager {
         {
             let mut sessions = self.sessions.lock().await;
             if let Some(pid) = sessions.get(package).and_then(ScrcpySession::pid) {
-                return Ok(pid);
+                if scrcpy_alive(pid, &self.config.serial()) {
+                    return Ok(pid);
+                }
+                tracing::info!(package = %package, pid, "sesión scrcpy muerta; se relanza");
             }
             // Entrada muerta (o ausente): se descarta y se relanza abajo.
             sessions.remove(package);
@@ -162,8 +166,37 @@ impl Manager {
             return Ok(false);
         };
         drop(sessions);
-        session.kill().await.map_err(|error| error.to_string())?;
-        tracing::info!(package = %package, "sesión scrcpy cerrada");
-        Ok(true)
+        let was_alive = session
+            .pid()
+            .map(|pid| scrcpy_alive(pid, &self.config.serial()))
+            .unwrap_or(false);
+        if was_alive {
+            session.kill().await.map_err(|error| error.to_string())?;
+            tracing::info!(package = %package, "sesión scrcpy cerrada");
+        }
+        Ok(was_alive)
     }
+
+    /// Elimina sesiones cuyo proceso scrcpy ya no existe (ventana cerrada a mano).
+    pub async fn cleanup_dead_sessions(&self) {
+        let mut sessions = self.sessions.lock().await;
+        sessions.retain(|package, session| {
+            let alive = session
+                .pid()
+                .map(|pid| scrcpy_alive(pid, &self.config.serial()))
+                .unwrap_or(false);
+            if !alive {
+                tracing::info!(package = %package, "limpiando sesión scrcpy muerta");
+            }
+            alive
+        });
+    }
+}
+
+fn scrcpy_alive(pid: u32, serial: &str) -> bool {
+    let Ok(bytes) = fs::read(format!("/proc/{pid}/cmdline")) else {
+        return false;
+    };
+    let cmdline = String::from_utf8_lossy(&bytes).replace('\0', " ");
+    cmdline.contains("scrcpy") && cmdline.contains(serial)
 }

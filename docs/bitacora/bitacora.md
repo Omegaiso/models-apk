@@ -361,6 +361,15 @@
 - Detalle de app: botón **Detalles** con package, versión, activity, SDK, ABIs, categorías y APK; opción **Desinstalar**.
 - La UI sigue delegando en el CLI; los controles avanzados de red/periféricos quedan para Fase 4.
 
+### 2026-11-27 — Reabrir una app tras cerrar su ventana
+
+- Reporte del usuario: al cerrar la ventana de F-Droid y volver a abrirla, la UI decía “ya se abrió” y no creaba una sesión nueva.
+- Causa: el mapa de sesiones del daemon conservaba el `Child`/PID de scrcpy aunque el proceso ya hubiera muerto al cerrar la ventana; `Child::id()` seguía devolviendo el PID antiguo.
+- Fix: `Manager::launch` valida `/proc/<pid>/cmdline` (debe ser scrcpy y el serial del emulador) antes de reutilizar; si no, elimina la sesión y lanza otra. `StopApp` tampoco intenta matar un PID ya muerto.
+- Añadido limpiador cada 5 s (`cleanup_dead_sessions`) y logs de sesión muerta/limpieza.
+- Verificado: launch → matar scrcpy → launch inmediato devuelve un PID nuevo y el proceso scrcpy aparece de nuevo.
+- Pendiente: foco/posición en multi-monitor; la ventana puede abrirse en el otro monitor y no recibir foco.
+
 ### 2026-11-27 — Transparencia de recursos y logs en vivo
 
 - Nueva página **Recursos** en `apkstart-settings`: agrupa CPU media y RAM de `apkstartd`, emulador, scrcpy, ADB del proyecto y la propia UI, con total y refresco cada 2 s.
