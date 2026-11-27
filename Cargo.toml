@@ -4,6 +4,7 @@ members = [
     "crates/apkstart-core",
     "crates/apkstart-apk",
     "crates/apkstart-engine",
+    "crates/apkstart-daemon",
     "crates/apkstart-cli",
 ]
 
@@ -18,6 +19,7 @@ authors = ["ApkStart contributors"]
 apkstart-core = { path = "crates/apkstart-core" }
 apkstart-apk = { path = "crates/apkstart-apk" }
 apkstart-engine = { path = "crates/apkstart-engine" }
+apkstart-daemon = { path = "crates/apkstart-daemon" }
 
 anyhow = "1.0"
 apk-info = "1.1"
@@ -37,10 +39,12 @@ tokio = { version = "1.54", features = [
     "fs",
     "signal",
     "io-util",
+    "sync",
 ] }
 toml = "1.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+zbus = { version = "6.5", features = ["tokio"] }
 
 [profile.release]
 lto = "thin"

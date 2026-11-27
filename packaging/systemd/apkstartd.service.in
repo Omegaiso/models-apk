@@ -1,0 +1,12 @@
+[Unit]
+Description=Daemon de models-apk (apkstartd)
+
+[Service]
+Type=dbus
+BusName=org.apkstart.Manager1
+ExecStart=@APKSTARTD@
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

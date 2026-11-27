@@ -113,7 +113,7 @@
 
 | Fase | Alcance | Estado |
 |---|---|---|
-| 1 | `apkstartd` + D-Bus `org.apkstart.Manager1`, sesiones, systemd --user, CLI cliente, sustituir el timer | En diseño/implementación |
+| 1 | `apkstartd` + D-Bus `org.apkstart.Manager1`, sesiones, systemd --user, CLI cliente, sustituir el timer | Parcial: daemon mínimo y `launch`/`stop` integrados |
 | 2 | UI GTK4/libadwaita: runtime, apps, instalar/desinstalar, ajustes, diagnóstico | Pendiente |
 | 3 | Ventanas: persistencia de tamaño/estado, viewer propio o wrapper, límite multi-app, activity e iconos adaptativos | Parcial |
 | 4 | Integración: notificaciones bridge, carpeta compartida, red/proxy/DNS, portapapeles/audio, cámara/micrófono/gamepad/USB | Pendiente |
@@ -274,6 +274,29 @@
 - `.desktop` escribe `Categories=` saneado y semicolon-terminated; F-Droid aparece en Sistema y un juego en Juegos.
 - Tests añadidos: 9 de clasificación/APK, migración v1→v2 y formato/saneo de categorías; `cargo test --workspace` verde (11+6+19+2), clippy limpio.
 - Las entradas existentes no cambian hasta `apkstart sync --refresh` o reinstalar; F-Droid ya se regeneró como `System;`.
+
+### 2026-11-27 — Daemon mínimo y cliente D-Bus
+
+**Implementado**
+- Nuevo crate `apkstart-daemon` con librería `Manager` y binario `apkstartd`.
+- D-Bus de sesión `org.apkstart.Manager1` en `/org/apkstart/Manager1`: `GetVersion`, `GetRuntimeStatus`, `StartRuntime`, `StopRuntime`, `ListApps`, `Launch`, `StopApp`. Los compuestos viajan como JSON temporal.
+- `Manager` mantiene sesiones scrcpy en memoria; `Launch` reutiliza una sesión viva, `StopApp` la cierra. `runtime start/stop` delega en `AndroidEmulator`.
+- `apkstart setup` instala `apkstartd.service` y la activación D-Bus de usuario, y lo arranca con `systemctl --user`; el timer de sync se mantiene porque el daemon aún no sincroniza.
+- `apkstart launch` usa el daemon si está disponible y no se pasan opciones de tamaño/título; `apkstart stop <pkg>` cierra la sesión del daemon. Si el daemon no está, `launch` cae al modo directo.
+- `packaging/install.sh` instala `apkstartd`, una unit de usuario y el service file de D-Bus.
+
+**Verificación**
+- `systemctl --user status apkstartd` activo; `GetVersion`/`GetRuntimeStatus`/`ListApps` responden.
+- `apkstart launch org.fdroid.fdroid` abre la ventana con `daemon pid=...`; `apkstart stop org.fdroid.fdroid` la cierra.
+- `cargo test --workspace` verde (11+6+19+2), `clippy -D warnings` limpio.
+- No se añadió todavía la tabla `sessions` ni la adopción de procesos; el daemon nuevo no reclama sesiones abiertas por el CLI.
+
+**Pendiente de Fase 1**
+- Mover `install` y `sync` al daemon, con serialización install/sync.
+- Tabla `sessions` (migración v3), adopción de scrcpy por `/proc`, watchdog del runtime.
+- Bucle de sync dentro del daemon y retirada del timer.
+- `launch` con opciones de tamaño/título por D-Bus y `stop` de sesiones abiertas en modo directo.
+- Tests D-Bus y de sesiones; empaquetado definitivo.
 
 ---
 

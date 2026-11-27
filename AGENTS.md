@@ -3,9 +3,9 @@
 ## Contexto que no se deduce de los nombres
 
 - Proyecto/repo: **models-apk** (`github.com/Omegaiso/models-apk`). Los identificadores internos siguen siendo `apkstart-*` y el binario `apkstart`; no hagas un rename masivo sin migrar configuración, SQLite, `.desktop` y `app_id`.
-- El repo implementa hoy **solo 4 crates**: `apkstart-core`, `apkstart-apk`, `apkstart-engine` y `apkstart-cli`.
-- `docs/plan-inicial/` describe el diseño completo (daemon, GTK4, viewer propio, QEMU). **Aún no existen** `apkstartd`, D-Bus, `apkstart-settings`, `apkstart-viewer` ni `apkstart-integration`. No escribas UI o servicios asumiendo que están.
-- El flujo actual es **CLI → `AndroidEmulator`/ADB/scrcpy directamente**. No hay daemon ni systemd.
+- El repo implementa hoy **cinco crates**: `apkstart-core`, `apkstart-apk`, `apkstart-engine`, `apkstart-daemon` (`apkstartd`) y `apkstart-cli`.
+- `docs/plan-inicial/` describe el diseño completo. **Aún no existen** `apkstart-settings` (GTK4), `apkstart-viewer` propio ni `apkstart-integration`.
+- `apkstartd` expone un D-Bus mínimo (`org.apkstart.Manager1`): runtime status/start/stop, listar, lanzar y cerrar app. `launch`/`stop` del CLI lo usan si está disponible y caen al modo directo si no. `install`, `sync` y el timer siguen siendo directos; el daemon aún no hace sync ni persiste sesiones.
 - Motor fijado para el MVP: **Android Emulator oficial + API 34 x86_64 `google_apis`**. Prioridad: estabilidad y usabilidad. No migrar a QEMU puro/Waydroid ni introducir Electron/Node/Java en el producto host (el SDK/`sdkmanager` puede usar Java como herramienta).
 - La bitácora vigente es **`docs/bitacora/bitacora.md`**. Es append-only: al cerrar un bloque añade una entrada; no reescribas el historial.
 
@@ -20,7 +20,9 @@ cargo test --workspace
 cargo run -p apkstart-cli -- doctor
 cargo run -p apkstart-cli -- setup
 cargo run -p apkstart-cli -- sync
+cargo run -p apkstart-daemon            # apkstartd en primer plano
 target/debug/apkstart doctor
+busctl --user call org.apkstart.Manager1 /org/apkstart/Manager1 org.apkstart.Manager1 GetVersion
 
 # Un test / un paquete
 cargo test -p apkstart-core db::tests::upsert_and_read_app
@@ -46,7 +48,7 @@ target/debug/apkstart runtime stop
 
 - Para inspeccionar ADB usa el **puerto propio**: `ANDROID_ADB_SERVER_PORT=5038 adb devices`, no el 5037 del usuario.
 - Logs: `~/.local/state/apkstart/emulator.log` y `~/.local/state/apkstart/sessions/<package>.log`.
-- `launch` deja scrcpy vivo al salir el CLI; `runtime stop` lo cierra.
+- `launch` deja scrcpy vivo al salir el CLI; si `apkstartd` está activo, la sesión la posee el daemon y `apkstart stop <package>` la cierra. `runtime stop` cierra el emulador y todas las sesiones.
 - El `.desktop` guarda como `Exec` la ruta absoluta del binario que ejecutó `install` (normalmente `target/debug/apkstart`). Si mueves/borras el binario, reinstala.
 
 ## Quirks críticos
@@ -71,7 +73,8 @@ target/debug/apkstart runtime stop
 - `apkstart-core`: `Config`, `Db`, modelos, `.desktop`/iconos, errores.
 - `apkstart-apk`: wrapper de `apk-info`; `read_apk`, `read_resource`.
 - `apkstart-engine`: `AndroidEmulator` (checks/arranque/parada), `Adb`, `ScrcpySession`.
-- `apkstart-cli`: único binario `apkstart`; subcomandos en `main.rs`.
+- `apkstart-daemon`: `Manager` (sesiones scrcpy en memoria) + `apkstartd` D-Bus; no hace install/sync todavía.
+- `apkstart-cli`: binario `apkstart`; `src/daemon.rs` es el cliente D-Bus mínimo.
 - Documentación y mensajes de usuario en español; identificadores y código en inglés.
 
 ## Documentos

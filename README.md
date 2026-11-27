@@ -88,11 +88,15 @@ cargo run -p apkstart-cli -- runtime start
 cargo run -p apkstart-cli -- install /ruta/app.apk
 cargo run -p apkstart-cli -- install --launch /ruta/app.apk
 cargo run -p apkstart-cli -- launch com.example.app
+cargo run -p apkstart-cli -- stop com.example.app
 ```
+
+`apkstart setup` instala y activa `apkstartd`, el daemon D-Bus `org.apkstart.Manager1`; `launch` y `stop` pasan por él cuando está disponible y caen al modo directo si no lo está.
 
 ## Escritorio, menú y doble clic
 
 - `install` crea una entrada `.desktop` y un icono en `~/.local/share`; la app aparece en el menú y en el escritorio como una app más.
+- Las apps se clasifican en categorías freedesktop (`Network;WebBrowser;`, `Game;`, `AudioVideo;`, `Office;`, `System;`…) usando `android:appCategory` y heurísticas de package/label.
 - `setup` registra el handler MIME `application/vnd.android.package-archive`: al hacer doble clic en un APK descargado desde el navegador se instala y se abre. En el MVP se abre una terminal para ver el progreso.
 - `setup` también activa un timer de `systemd --user` cada 15 s que sincroniza las apps instaladas **dentro** de Android (por ejemplo desde F-Droid) con el escritorio Linux. Si el timer no está disponible, ejecuta `apkstart sync` o `apkstart sync --refresh`.
 - Las apps con icono vectorial/adaptive sin bitmap usan un icono de respaldo con su inicial; el icono adaptativo completo queda pendiente.

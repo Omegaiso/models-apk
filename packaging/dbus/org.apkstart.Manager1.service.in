@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.apkstart.Manager1
+Exec=/usr/bin/systemctl --user start apkstartd.service

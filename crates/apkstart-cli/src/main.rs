@@ -1,3 +1,5 @@
+mod daemon;
+
 use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -81,6 +83,11 @@ enum Command {
         #[arg(long)]
         keep_data: bool,
     },
+    /// Cierra la ventana de una app (requiere apkstartd).
+    Stop {
+        /// Package Android.
+        package: String,
+    },
     /// Muestra la ruta de configuración y el estado de la UI de ajustes.
     Settings,
     /// Exporta logs y diagnóstico a un directorio.
@@ -127,6 +134,7 @@ async fn run(cli: Cli) -> Result<()> {
         } => launch(&config, package, title, size, dpi).await,
         Command::List { json, all } => list(&config, json, all).await,
         Command::Uninstall { package, keep_data } => uninstall(&config, &package, keep_data).await,
+        Command::Stop { package } => stop(&package).await,
         Command::Settings => settings(&config),
         Command::ExportLog => export_log(&config).await,
     }
@@ -175,6 +183,11 @@ async fn setup(config: &Config) -> Result<()> {
     match install_sync_timer(&executable) {
         Ok(true) => println!("  sincronización automática: timer de 15 s activo"),
         _ => println!("  aviso: no se pudo activar el timer de sincronización de systemd --user"),
+    }
+    match install_daemon_service(&executable) {
+        Ok(true) => println!("  apkstartd: servicio de usuario activo"),
+        Ok(false) => println!("  aviso: no se encontró apkstartd junto al binario"),
+        Err(error) => println!("  aviso: no se pudo instalar apkstartd: {error}"),
     }
 
     let emulator = AndroidEmulator::new(config.clone());
@@ -258,6 +271,62 @@ fn install_sync_timer(executable: &Path) -> Result<bool> {
     }
     let enabled = ProcessCommand::new("systemctl")
         .args(["--user", "enable", "--now", "apkstart-sync.timer"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    Ok(enabled)
+}
+
+fn install_daemon_service(executable: &Path) -> Result<bool> {
+    let daemon = executable.with_file_name("apkstartd");
+    if !daemon.is_file() {
+        return Ok(false);
+    }
+    let Some(config_dir) = dirs::config_dir() else {
+        return Ok(false);
+    };
+    let unit_dir = config_dir.join("systemd/user");
+    fs::create_dir_all(&unit_dir)?;
+    let dbus_dir = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("dbus-1/services");
+    fs::create_dir_all(&dbus_dir)?;
+
+    let exec = systemd_quote(&daemon.to_string_lossy());
+    let service = format!(
+        "[Unit]\n\
+         Description=Daemon de models-apk (apkstartd)\n\
+         \n\
+         [Service]\n\
+         Type=dbus\n\
+         BusName=org.apkstart.Manager1\n\
+         ExecStart={exec}\n\
+         Restart=on-failure\n\
+         RestartSec=3\n\
+         \n\
+         [Install]\n\
+         WantedBy=default.target\n"
+    );
+    fs::write(unit_dir.join("apkstartd.service"), service)?;
+    let activation = "[D-BUS Service]\n\
+                      Name=org.apkstart.Manager1\n\
+                      Exec=/usr/bin/systemctl --user start apkstartd.service\n";
+    fs::write(dbus_dir.join("org.apkstart.Manager1.service"), activation)?;
+
+    let reload = ProcessCommand::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !reload {
+        return Ok(false);
+    }
+    let enabled = ProcessCommand::new("systemctl")
+        .args(["--user", "enable", "--now", "apkstartd.service"])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -534,6 +603,23 @@ async fn launch(
     size: Option<String>,
     dpi: Option<u32>,
 ) -> Result<()> {
+    // El daemon es el dueño de las sesiones cuando está disponible. Las
+    // opciones de tamaño/título aún no viajan por D-Bus, así que en ese caso
+    // se usa el camino directo.
+    if title.is_none() && size.is_none() && dpi.is_none() {
+        match daemon::launch(&package).await {
+            daemon::Call::Ok(pid) => {
+                if let Ok(db) = Db::open(&config.db_path()) {
+                    let _ = db.touch_launched(&package, now_unix());
+                }
+                println!("Ventana lanzada: {package} (daemon pid={pid})");
+                return Ok(());
+            }
+            daemon::Call::Unavailable => {}
+            daemon::Call::Failed(error) => bail!("apkstartd: {error}"),
+        }
+    }
+
     let db = Db::open(&config.db_path()).ok();
     let app = db
         .as_ref()
@@ -651,6 +737,18 @@ async fn uninstall(config: &Config, package: &str, keep_data: bool) -> Result<()
         apkstart_core::desktop::refresh_caches(&paths);
     }
     println!("Desinstalado: {package}");
+    Ok(())
+}
+
+async fn stop(package: &str) -> Result<()> {
+    match daemon::stop_app(package).await {
+        daemon::Call::Ok(true) => println!("Sesión cerrada: {package}"),
+        daemon::Call::Ok(false) => println!("No había una ventana abierta: {package}"),
+        daemon::Call::Unavailable => {
+            bail!("apkstartd no está disponible; no se pudo cerrar la ventana")
+        }
+        daemon::Call::Failed(error) => bail!("apkstartd: {error}"),
+    }
     Ok(())
 }
 
@@ -774,6 +872,15 @@ mod tests {
                 assert_eq!(apk, PathBuf::from("/tmp/app.apk"));
                 assert!(launch);
             }
+            _ => panic!("comando inesperado"),
+        }
+    }
+
+    #[test]
+    fn cli_parses_stop() {
+        let cli = Cli::try_parse_from(["apkstart", "stop", "org.fdroid.fdroid"]).unwrap();
+        match cli.command {
+            Command::Stop { package } => assert_eq!(package, "org.fdroid.fdroid"),
             _ => panic!("comando inesperado"),
         }
     }

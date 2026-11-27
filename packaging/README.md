@@ -18,14 +18,15 @@ PREFIX=/usr sudo packaging/install.sh # /usr
 
 ## Qué debe hacer un paquete de distro
 
-1. Instalar el binario `apkstart` (por ejemplo `/usr/bin/apkstart`).
+1. Instalar los binarios `apkstart` y `apkstartd` (por ejemplo `/usr/bin/`).
 2. Instalar `LICENSE`.
 3. Instalar `packaging/binfmt/install.sh`, `models-apk.conf` y `uninstall.sh` en `/usr/lib/models-apk/binfmt/`.
-4. En `postinst`/`post_install` ejecutar:
+4. Instalar `apkstartd.service` en `/usr/lib/systemd/user/` y la activación D-Bus en `/usr/share/dbus-1/services/` (el instalador local los genera desde `packaging/systemd/` y `packaging/dbus/`).
+5. En `postinst`/`post_install` ejecutar:
    ```bash
    /usr/lib/models-apk/binfmt/install.sh /usr/bin/apkstart
    ```
-5. En `prerm`/`pre_remove` ejecutar:
+6. En `prerm`/`pre_remove` ejecutar:
    ```bash
    /usr/lib/models-apk/binfmt/uninstall.sh
    ```
@@ -40,7 +41,7 @@ El registro MIME por defecto (`xdg-mime`) y el timer de sincronización son por 
 apkstart setup
 ```
 
-Eso registra el handler MIME, activa `apkstart-sync.timer` y sincroniza las apps ya instaladas. En una versión futura, `apkstartd` podrá hacerlo sin intervención.
+Eso registra el handler MIME, activa `apkstart-sync.timer`, instala el servicio de usuario `apkstartd.service` (D-Bus) y sincroniza las apps ya instaladas. En una versión futura, `apkstartd` hará el sync sin timer.
 
 ## Verificación
 
@@ -48,4 +49,6 @@ Eso registra el handler MIME, activa `apkstart-sync.timer` y sincroniza las apps
 cat /proc/sys/fs/binfmt_misc/models-apk
 xdg-mime query default application/vnd.android.package-archive
 systemctl --user status apkstart-sync.timer
+systemctl --user status apkstartd.service
+busctl --user call org.apkstart.Manager1 /org/apkstart/Manager1 org.apkstart.Manager1 GetVersion
 ```
