@@ -395,6 +395,15 @@
 - Responsive verificado a 1120, 653 y 500 px: el `AdwOverlaySplitView` pasa a overlay por debajo de **800 px** (botón de menú en el header), el contenido se limita a **1120 px** con `AdwClamp` y el `GtkFlowBox` homogéneo reordena las tarjetas de 3 a 2 a 1 columna.
 - `libadwaita` pasa a features `v1_4` + `gtk_v4_10` para `OverlaySplitView`, `BreakpointBin` y `MessageDialog`.
 
+### 2026-11-27 — Documentación de producto, Acerca de y bug de ventana negra
+
+- **README reescrito como carta de presentación**: hero con captura real, badges, qué hace, capturas (Inicio, Aplicaciones, F-Droid, Recursos, Integración), requisitos estimados de recursos, instalación por paquetes (marcada como Fase 2), instalación desde fuente, preparación del SDK/AVD, uso rápido, diagrama Mermaid de arquitectura, problemas frecuentes y enlaces a `docs/`.
+- **Documentación técnica nueva**: `docs/README.md` (índice), `arquitectura.md`, `estructura.md`, `dependencias.md`, `instalacion.md`, `bugs.md`, `actualizaciones.md` y `desarrollo.md`. La bitácora, el plan inicial y el laboratorio de diseño se mantienen como documentos históricos.
+- **Acerca de**: nueva sección **Pendiente y parcial** con 12 tarjetas (`pendiente`, `parcial`, `limitación`) que cubren actualizaciones, paquetes, sesiones, multi-monitor, archivos, notificaciones, red, periféricos, iconos, Play Store, ARM/DRM y visor propio. También se corrigió el plural “1 app” y el ancho natural de las tarjetas (`max_width_chars`) para que el flujo reflowe con textos largos.
+- **Bug abierto — ventana negra**: el usuario reportó que, durante las pruebas de captura, abrir F-Droid podía dejar la ventana negra hasta cerrarla por completo y reabrirla. No se reprodujo de forma determinista en la última prueba (cerrar/abrir renderizó bien). Hipótesis registradas: carrera TOCTOU en `Manager::launch` (dos scrcpy para el mismo package), display virtual en Doze/pantalla apagada (scrcpy #6787/#6974) y app reanudada en un display destruido. Queda documentado en `docs/bugs.md` con plan de corrección; **no se toca código hoy**.
+- **Fase 2 pendiente**: GitHub Actions para `.deb`, `.rpm`, Arch y `install.sh`; sistema de detección/actualización desde GitHub Releases. El diseño está en `docs/actualizaciones.md`; no hay nada publicado todavía.
+- Se añadieron capturas reales en `docs/images/` (1120×780/900 y la ventana de F-Droid a 552×1012). No se hicieron más pruebas de UI después del reporte del bug.
+
 
 ---
 
@@ -418,3 +427,5 @@
 | Imagen Play no redistribuible | Conocido | No empaquetar; descarga y aceptación por el usuario |
 | `FLAG_SECURE` / DRM / anticheat | Conocido | Documentar; no prometer compatibilidad |
 | GPU AMD con `-gpu host` | Por validar | Fallback `swiftshader_indirect`; medir |
+| Ventana negra al abrir una app | Abierto | Cerrar y reabrir; documentado en `docs/bugs.md`; siguiente: lock por package + wake/stay-awake + posible force-stop |
+| Instaladores y actualizaciones | Pendiente Fase 2 | Diseño en `docs/actualizaciones.md`; repositorio público y GitHub Actions |

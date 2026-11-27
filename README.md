@@ -1,57 +1,126 @@
+<div align="center">
+
 # models-apk
 
-Gestor nativo de aplicaciones Android para Linux: Android completo sobre Android Emulator/QEMU, una ventana Wayland por aplicación y sin mostrar el escritorio Android.
+**Tus aplicaciones Android, como aplicaciones nativas de Linux.**
 
-> Proyecto: **models-apk**. Los identificadores internos (`apkstart-*`, binario `apkstart`, rutas `~/.config/apkstart`) se mantienen por compatibilidad hasta un rename controlado.
+Android 14 headless sobre KVM · una ventana Wayland por app · icono, menú y doble clic para instalar APK.
+Sin Electron, sin Node y sin el escritorio Android.
 
-El diseño y las decisiones están en [`docs/plan-inicial/`](docs/plan-inicial/). El avance real se registra en [`docs/bitacora/bitacora.md`](docs/bitacora/bitacora.md).
+[![MIT](https://img.shields.io/badge/licencia-MIT-blue.svg)](LICENSE)
+![Rust](https://img.shields.io/badge/Rust-1.95%2B-orange.svg)
+![GTK4](https://img.shields.io/badge/UI-GTK4%20%2B%20libadwaita-4a86cf.svg)
+![Android](https://img.shields.io/badge/Android-14%20(API%2034)-3ddc84.svg)
+![Wayland](https://img.shields.io/badge/ventanas-Wayland-ffbc00.svg)
 
-## Estado
+<img src="docs/images/inicio.png" alt="Pantalla de inicio de models-apk" width="860">
 
-MVP en construcción. El spike de viabilidad ya validó:
+</div>
 
-- Android 14 (API 34) x86_64 headless con KVM y GPU del host.
-- Display virtual por app con scrcpy 5.x.
-- Ventana Wayland con título propio y resize flexible.
-- Audio Opus desde Android.
-- Teclado Android dentro del display virtual (`--display-ime-policy=local`).
+> **Estado:** MVP funcional en desarrollo activo. Sirve para usar apps Android concretas
+> (F-Droid, clientes ligeros, utilidades) en el escritorio Linux. No es un emulador para
+> juegos 3D ni pretende sustituir a un teléfono.
 
-Pendiente: input/portapapeles manual, compositores Hyprland/GNOME, `FLAG_SECURE` y apps ARM-only.
+## Qué hace
 
-## Requisitos del host
+- Arranca **Android 14 (API 34) x86_64** en un emulador headless con KVM.
+- Abre **cada app en su propia ventana Wayland**, con título, icono y `app_id` propios.
+- Instala APK **con doble clic** desde el navegador, con `./app.apk` o desde la terminal.
+- Crea la entrada `.desktop`, el icono y la **categoría freedesktop** correcta.
+- Sincroniza cada 15 s las apps instaladas dentro de Android (por ejemplo desde F-Droid).
+- Ofrece una UI de ajustes con estado del runtime, apps, CPU/RAM/GPU, integración y logs.
 
-- Linux x86_64 con `/dev/kvm` accesible.
-- Android SDK con `platform-tools`, `emulator` y una imagen API 34 `google_apis` x86_64.
-- `scrcpy` 5.x (o ruta al binario y a `scrcpy-server`).
-- Wayland recomendado; X11/XWayland es best-effort.
-- Rust 1.95+ para compilar.
+## Capturas
 
-## Ajustes GTK
+| Aplicaciones | Una app real en su ventana |
+|---|---|
+| <img src="docs/images/aplicaciones.png" alt="Aplicaciones instaladas"> | <img src="docs/images/app-fdroid.png" alt="F-Droid en una ventana Wayland" width="280"> |
 
-`apkstart-settings` es la UI de administración (GTK4/libadwaita):
+| Recursos | Integración |
+|---|---|
+| <img src="docs/images/recursos.png" alt="CPU, RAM, GPU y procesos"> | <img src="docs/images/integracion.png" alt="MIME, binfmt, daemon y timer"> |
 
-- Inicio: estado del runtime, arrancar/detener, sincronizar.
-- Aplicaciones: lista con icono, abrir/cerrar e instalar APK.
-- Recursos: CPU instantánea/RAM agregadas de `apkstartd`, emulador, scrcpy, ADB y la UI, más GPU global vía sysfs. Un 283% de CPU significa ~2,8 hilos, no un fallo.
-- Red: NAT del host, proxy/DNS heredados y límites de LAN/mDNS.
-- Periféricos: estado de audio, portapapeles, cámara, micrófono, gamepad y USB.
-- Integración: MIME de APK, binfmt, daemon y timer; botones para reinstalar `setup` y sincronizar.
-- Diagnóstico: `doctor`, logs en vivo cada 2 s y exportación de logs.
-- Acerca de: versión y licencia.
+La página **Acerca de** incluye la lista viva de lo pendiente, lo parcial y las limitaciones
+conocidas del MVP.
 
-En `btop`/monitor de sistema los procesos aparecen con sus nombres reales (`apkstartd`, `qemu-system-x86_64-headless`, `scrcpy`); la página **Recursos** los agrupa como models-apk. El servicio está en `models-apk.slice`, así que `systemd-cgls --user | grep -A4 models-apk.slice` o `systemd-cgtop -1 -b --depth=5 | grep models-apk` muestran la agrupación.
+## Requisitos
 
-`apkstart setup` crea el acceso `io.github.apkstart.Settings.desktop` en el menú. La UI delega en el binario `apkstart`, que usa el daemon cuando está disponible.
+| Recurso | Mínimo | Recomendado |
+|---|---|---|
+| Sistema | Linux x86_64 con `/dev/kvm` accesible | Igual, con virtualización activa |
+| RAM del host | **8 GB** | **12–16 GB** (guest de 3 GB + emulador + escritorio) |
+| CPU | 4 hilos | 6–8 hilos |
+| Disco libre | **12 GB** | 20 GB (imagen del sistema + AVD de 6 GB + APKs) |
+| GPU | OpenGL 3.3 / iGPU | GPU con VA-API (mejor decodificación) |
+| Sesión | Wayland | **KDE Plasma Wayland** (probado); GNOME/Hyprland pendientes |
+| SDK | Android SDK + imagen API 34 `google_apis` x86_64 | Igual |
+| scrcpy | 5.x | 5.0.1 o superior |
+| Compilar | Rust 1.95+, GTK4 y libadwaita | Igual |
 
-## AVD persistente
+Consumo medido en el host de desarrollo: guest de **3 GB**, emulador de **2,3–3,8 GiB RSS**,
+scrcpy de **100–150 MiB** y **0,2–1,5 núcleos** según uso. El arranque con quickboot tarda
+unos **10–20 s**; el primero en frío, **1–2 min**.
 
-El AVD debe conservar la partición de datos entre reinicios. Si lo creas con `avdmanager`, revisa `~/.android/avd/<nombre>.avd/config.ini` y **elimina** esta línea si existe:
+## Instalación
 
-```ini
-disk.dataPartition.path=<temp>
+### Paquetes de distro (Fase 2 — aún no publicados)
+
+El objetivo es publicar en GitHub Releases:
+
+```bash
+# Debian / Ubuntu / derivados
+sudo apt install ./models-apk_*_amd64.deb
+
+# Fedora / RHEL / derivados
+sudo dnf install ./models-apk-*.x86_64.rpm
+
+# Arch Linux / derivados
+sudo pacman -U models-apk-*.pkg.tar.zst
+
+# Instalador universal
+curl -fsSL https://raw.githubusercontent.com/Omegaiso/models-apk/main/install.sh | sh
 ```
 
-Ajustes recomendados para el AVD de ApkStart:
+> Estos comandos todavía no funcionan: los paquetes y el script `install.sh` llegan con la
+> Fase 2. La instalación desde el código de abajo sí está disponible hoy.
+
+### Desde el código (hoy)
+
+```bash
+git clone https://github.com/Omegaiso/models-apk.git
+cd models-apk
+
+# Dependencias de compilación
+# Arch:            sudo pacman -S --needed base-devel rust gtk4 libadwaita
+# Debian/Ubuntu:   sudo apt install build-essential pkg-config libgtk-4-dev libadwaita-1-dev
+# Fedora:          sudo dnf install gcc pkgconf-pkg-config gtk4-devel libadwaita-devel
+
+cargo build --release --locked
+sudo packaging/install.sh        # instala binarios, .desktop y binfmt_misc
+apkstart setup                   # integración del usuario actual (MIME + daemon)
+apkstart doctor                  # comprueba KVM, SDK, AVD, scrcpy y Wayland
+```
+
+`packaging/install.sh` registra **automáticamente** `binfmt_misc` para que `./app.apk`
+funcione; no hace falta pedirle al usuario un comando manual.
+
+<details>
+<summary><b>Preparar el SDK y el AVD (solo la primera vez)</b></summary>
+
+```bash
+export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
+# cmdline-tools y sdkmanager deben estar instalados en $ANDROID_SDK_ROOT/cmdline-tools/latest
+sdkmanager --install \
+  "platform-tools" "emulator" \
+  "system-images;android-34;google_apis;x86_64"
+
+avdmanager create avd \
+  -n apkstart \
+  -k "system-images;android-34;google_apis;x86_64" \
+  -d pixel_7
+```
+
+Revisa `~/.android/avd/apkstart.avd/config.ini`:
 
 ```ini
 hw.ramSize=3072
@@ -62,101 +131,112 @@ disk.dataPartition.size=6G
 userdata.useQcow2=yes
 ```
 
-El primer arranque de un AVD nuevo es en frío. A partir de ahí se usa quickboot. Si un snapshot se corrompe, arranca con `APKSTART_COLD_BOOT=1` y, si persiste, borra `~/.android/avd/<nombre>.avd/snapshots/`.
+**Elimina** `disk.dataPartition.path=<temp>` si aparece: con esa línea los APK desaparecen
+al reiniciar el emulador. `apkstart doctor` avisa de este problema.
 
-`apkstart doctor` avisa si detecta una partición temporal.
-
-## Compilar y probar
-
-```bash
-cargo build
-cargo test
-cargo run -p apkstart-cli -- doctor
-```
-
-## Instalación completa
+Instala `scrcpy` 5.x desde tu distro o en `~/.local/opt/scrcpy`; si no está en `PATH`:
 
 ```bash
-cargo build --release --locked
-sudo packaging/install.sh          # /usr/local
-# o: PREFIX=/usr sudo packaging/install.sh
-apkstart setup                     # MIME y daemon del usuario actual
+export APKSTART_SCRCPY="$HOME/.local/opt/scrcpy/usr/bin/scrcpy"
+export APKSTART_SCRCPY_SERVER="$HOME/.local/opt/scrcpy/usr/share/scrcpy/scrcpy-server"
 ```
 
-`packaging/install.sh` registra **automáticamente** `binfmt_misc` para que `./app.apk` funcione; no se debe pedir al usuario el comando manual. Los paquetes de distro deben ejecutar el mismo hook en `postinst` (ver [`packaging/README.md`](packaging/README.md)).
+</details>
 
 ## Uso rápido
 
 ```bash
-# Estado del entorno y del runtime
-cargo run -p apkstart-cli -- doctor
-cargo run -p apkstart-cli -- runtime status
-
-# Registrar la integración con el escritorio (una vez)
-cargo run -p apkstart-cli -- setup
-
-# Sincronizar apps instaladas dentro de Android (F-Droid, etc.)
-cargo run -p apkstart-cli -- sync
-
-# UI de administración
-cargo run -p apkstart-settings
-
-# Arrancar Android headless
-cargo run -p apkstart-cli -- runtime start
-
-# Instalar un APK y lanzarlo en su propia ventana
-cargo run -p apkstart-cli -- install /ruta/app.apk
-cargo run -p apkstart-cli -- install --launch /ruta/app.apk
-cargo run -p apkstart-cli -- launch com.example.app
-cargo run -p apkstart-cli -- stop com.example.app
+apkstart runtime start                 # arranca Android headless
+apkstart install --launch app.apk      # instala y abre la app
+apkstart launch org.fdroid.fdroid      # abre una app ya instalada
+apkstart stop org.fdroid.fdroid        # cierra su ventana
+apkstart sync                          # trae apps instaladas dentro de Android
+apkstart-settings                      # UI de ajustes
+apkstart doctor                        # diagnóstico
 ```
 
-`apkstart setup` instala y activa `apkstartd`, el daemon D-Bus `org.apkstart.Manager1`; `launch` y `stop` pasan por él cuando está disponible y caen al modo directo si no lo está.
+También puedes hacer doble clic en un `.apk` descargado, ejecutar `./app.apk` o abrir la app
+desde el menú de aplicaciones como cualquier programa de Linux.
 
-## Escritorio, menú y doble clic
+## Cómo funciona
 
-- `install` crea una entrada `.desktop` y un icono en `~/.local/share`; la app aparece en el menú y en el escritorio como una app más.
-- Las apps se clasifican en categorías freedesktop (`Network;WebBrowser;`, `Game;`, `AudioVideo;`, `Office;`, `System;`…) usando `android:appCategory` y heurísticas de package/label.
-- `setup` registra el handler MIME `application/vnd.android.package-archive`: al hacer doble clic en un APK descargado desde el navegador se instala y se abre. En el MVP se abre una terminal para ver el progreso.
-- `setup` instala y activa `apkstartd`; el daemon sincroniza cada 15 s las apps instaladas **dentro** de Android (por ejemplo desde F-Droid) con el escritorio Linux. El timer antiguo se elimina cuando el daemon arranca; si no está disponible, queda el timer como respaldo. También puedes forzar `apkstart sync` o `apkstart sync --refresh`.
-- Las apps con icono vectorial/adaptive sin bitmap usan un icono de respaldo con su inicial; el icono adaptativo completo queda pendiente.
-- Para ejecutar un APK como un binario (`./app.apk`), Linux necesita `binfmt_misc` y permisos de ejecución. En una instalación completa, `packaging/install.sh` lo registra automáticamente. Solo para desarrollo sin instalar:
+```mermaid
+flowchart LR
+    subgraph Host["Escritorio Linux"]
+        UI["apkstart-settings<br/>GTK4 · libadwaita"]
+        CLI["apkstart<br/>CLI"]
+        D["apkstartd<br/>D-Bus org.apkstart.Manager1"]
+        DB[("SQLite<br/>~/.local/share/apkstart")]
+        DESK["Menú · .desktop<br/>iconos · MIME"]
+        BINFMT["binfmt_misc<br/>./app.apk"]
+    end
 
-```bash
-sudo packaging/binfmt/install.sh /ruta/a/target/debug/apkstart
-chmod +x app.apk
-./app.apk
+    subgraph Engine["Motor Android"]
+        ADB["ADB dedicado<br/>:5038"]
+        EMU["Android Emulator<br/>API 34 · KVM · headless"]
+        SCR["scrcpy<br/>ventana Wayland"]
+    end
+
+    UI --> CLI
+    CLI -->|D-Bus| D
+    CLI -.->|fallback directo| ADB
+    D --> DB
+    D --> ADB --> EMU
+    D --> SCR --> EMU
+    SCR -->|SDL_APP_ID por app| DESK
+    BINFMT --> CLI
 ```
 
-El handler binfmt llama a `apkstart install --launch`; el APK se ejecuta con los permisos del usuario que lo lanza, no como root.
+- El **CLI** habla con `apkstartd` por D-Bus; si el daemon no está, cae al modo directo.
+- El **daemon** es el dueño de las sesiones scrcpy, el runtime y la sincronización cada 15 s.
+- **scrcpy** crea un display virtual de **552×984 a 215 dpi (411 dp)** y lo redimensiona con
+  la ventana (`--flex-display`). El dpi queda fijo: al agrandar la ventana hay más columnas,
+  no zoom.
+- `SDL_APP_ID=io.github.apkstart.<package>` da a cada ventana su propia identidad Wayland,
+  para que el compositor asocie icono, menú y agrupación.
 
-La configuración se lee de `~/.config/apkstart/config.toml` y se puede sobreescribir con variables `APKSTART_*`:
+Más detalle técnico: [arquitectura](docs/arquitectura.md) ·
+[estructura](docs/estructura.md) · [dependencias](docs/dependencias.md).
 
-| Variable | Efecto |
+## Problemas frecuentes
+
+| Síntoma | Causa probable | Solución |
+|---|---|---|
+| `no se puede abrir /dev/kvm` | Usuario sin permiso sobre KVM | `sudo usermod -aG kvm $USER`, cerrar sesión y volver a entrar |
+| `falta el AVD apkstart` | SDK/AVD sin preparar | Sigue el bloque “Preparar el SDK y el AVD” |
+| `no se encontró scrcpy` | scrcpy fuera de `PATH` | Instálalo o define `APKSTART_SCRCPY` y `APKSTART_SCRCPY_SERVER` |
+| Los APK desaparecen al reiniciar | Partición de datos temporal | Quita `disk.dataPartition.path=<temp>` del `config.ini` |
+| La ventana de una app aparece **negra** | Carrera del display virtual / app ya en un display destruido (bug abierto) | Cierra la ventana y vuelve a abrirla; ver [bugs](docs/bugs.md#ventana-negra-al-abrir-una-app) |
+| `./app.apk` da permiso denegado | `binfmt_misc` sin registrar | Ejecuta `sudo packaging/install.sh` o `apkstart setup` |
+| No hay audio | PipeWire/PulseAudio o sesión sin audio | Comprueba `doctor`; prueba con otra app |
+| Snapshot de arranque corrupto | Quickboot inválido | `APKSTART_COLD_BOOT=1 apkstart runtime start` |
+
+Guía ampliada: [instalación y errores](docs/instalacion.md).
+
+## Documentación
+
+| Documento | Contenido |
 |---|---|
-| `APKSTART_SDK_ROOT` | Ruta del SDK de Android |
-| `APKSTART_AVD` | Nombre del AVD |
-| `APKSTART_PORT` | Puerto del emulador (por defecto 5556) |
-| `APKSTART_ADB_PORT` | Servidor ADB propio (por defecto 5038) |
-| `APKSTART_SCRCPY` / `APKSTART_SCRCPY_SERVER` | Rutas de scrcpy y su servidor |
-| `APKSTART_COLD_BOOT=1` | Fuerza cold boot (recuperación) |
-| `APKSTART_ALLOW_TCG=1` | Permite arrancar sin KVM (muy lento) |
+| [docs/README.md](docs/README.md) | Índice de la documentación técnica |
+| [docs/arquitectura.md](docs/arquitectura.md) | Componentes, flujos, D-Bus, sesiones y decisiones |
+| [docs/estructura.md](docs/estructura.md) | Árbol del repo, crates, esquema SQLite, rutas y variables |
+| [docs/dependencias.md](docs/dependencias.md) | Dependencias Rust y del sistema, versiones y licencias |
+| [docs/instalacion.md](docs/instalacion.md) | Instalación, AVD, binfmt, desinstalación y errores |
+| [docs/bugs.md](docs/bugs.md) | Bugs encontrados, limitaciones asumidas y estado |
+| [docs/actualizaciones.md](docs/actualizaciones.md) | Diseño de paquetes, CI y actualizaciones (Fase 2) |
+| [docs/desarrollo.md](docs/desarrollo.md) | Compilar, tests, estilo y utilidades de desarrollo |
+| [docs/plan-inicial/](docs/plan-inicial/) | Plan técnico original por fases |
+| [docs/bitacora/bitacora.md](docs/bitacora/bitacora.md) | Historial de decisiones y progreso real |
 
-ApkStart usa un servidor ADB propio en el puerto 5038 para no interferir con el ADB del usuario ni con dispositivos físicos.
+## Licencia
 
-## Estructura
+El código de models-apk es **MIT** (ver [LICENSE](LICENSE)). El Android Emulator, las
+imágenes de Google y la traducción ARM son propietarios y **no se redistribuyen**: el usuario
+instala el SDK y acepta sus licencias. `apk-info` y `scrcpy` son Apache-2.0; QEMU es GPL-2.0.
 
-```text
-crates/
-  apkstart-core/    configuración, errores, modelos, SQLite
-  apkstart-apk/     lectura de APK (manifiesto, label, versión, activity)
-  apkstart-engine/  emulador, ADB y sesiones scrcpy
-  apkstart-cli/     binario apkstart
-docs/
-  plan-inicial/     plan técnico
-  bitacora.md       decisiones y progreso
-```
+---
 
-## Licencias
-
-El código de models-apk es **MIT** (ver [`LICENSE`](LICENSE)). El Android Emulator, las imágenes de Google y la traducción ARM son propietarios: no se redistribuyen. El usuario instala el SDK y acepta sus licencias. `apk-info` es Apache-2.0; `scrcpy` es Apache-2.0; QEMU es GPL-2.0.
+<div align="center">
+Hecho para Linux, con Rust, GTK4 y Wayland.<br>
+Si el proyecto te resulta útil, una estrella ayuda a que más gente lo encuentre.
+</div>

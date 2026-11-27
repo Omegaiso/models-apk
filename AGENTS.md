@@ -86,6 +86,10 @@ target/debug/apkstart runtime stop
 
 ## Documentos
 
-- Diseño: `docs/plan-inicial/`.
+- Presentación y guía rápida: `README.md` (capturas en `docs/images/`).
+- Índice técnico: `docs/README.md`.
+- Arquitectura, estructura, dependencias, instalación, bugs y desarrollo: `docs/arquitectura.md`, `docs/estructura.md`, `docs/dependencias.md`, `docs/instalacion.md`, `docs/bugs.md`, `docs/desarrollo.md`.
+- Paquetes, CI y actualizaciones (Fase 2, aún no implementado): `docs/actualizaciones.md`.
+- Diseño original: `docs/plan-inicial/`; laboratorio visual: `docs/design/settings-ui/`.
 - Progreso, decisiones y riesgos: `docs/bitacora/bitacora.md`.
-- Si cambias arquitectura o corriges un fallo relevante, añade entrada a la bitácora y actualiza el checklist si aplica.
+- Si cambias arquitectura o corriges un fallo relevante, añade entrada a la bitácora, actualiza `docs/bugs.md` y el checklist si aplica.
