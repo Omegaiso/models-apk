@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=models-apk
+Comment=Administrar aplicaciones Android
+Exec=@APKSTART_SETTINGS@
+Icon=system-software-install
+Terminal=false
+Categories=Settings;System;
+StartupNotify=true
+StartupWMClass=io.github.apkstart.Settings

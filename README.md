@@ -26,6 +26,17 @@ Pendiente: input/portapapeles manual, compositores Hyprland/GNOME, `FLAG_SECURE`
 - Wayland recomendado; X11/XWayland es best-effort.
 - Rust 1.95+ para compilar.
 
+## Ajustes GTK
+
+`apkstart-settings` es la UI de administración (GTK4/libadwaita):
+
+- Inicio: estado del runtime, arrancar/detener, sincronizar.
+- Aplicaciones: lista con icono, abrir/cerrar e instalar APK.
+- Diagnóstico: `doctor` y exportación de logs.
+- Acerca de: versión y licencia.
+
+`apkstart setup` crea el acceso `io.github.apkstart.Settings.desktop` en el menú. La UI delega en el binario `apkstart`, que usa el daemon cuando está disponible.
+
 ## AVD persistente
 
 El AVD debe conservar la partición de datos entre reinicios. Si lo creas con `avdmanager`, revisa `~/.android/avd/<nombre>.avd/config.ini` y **elimina** esta línea si existe:
@@ -80,6 +91,9 @@ cargo run -p apkstart-cli -- setup
 
 # Sincronizar apps instaladas dentro de Android (F-Droid, etc.)
 cargo run -p apkstart-cli -- sync
+
+# UI de administración
+cargo run -p apkstart-settings
 
 # Arrancar Android headless
 cargo run -p apkstart-cli -- runtime start

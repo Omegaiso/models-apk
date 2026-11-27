@@ -13,33 +13,41 @@ REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 PREFIX="${PREFIX:-/usr/local}"
 APKSTART_BIN="${APKSTART_BIN:-$REPO_ROOT/target/release/apkstart}"
 APKSTARTD_BIN="${APKSTARTD_BIN:-$REPO_ROOT/target/release/apkstartd}"
+APKSTART_SETTINGS_BIN="${APKSTART_SETTINGS_BIN:-$REPO_ROOT/target/release/apkstart-settings}"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "Se necesitan permisos de root para instalar y registrar binfmt_misc." >&2
     exec sudo -- "$0" "$@"
 fi
 
-if [ ! -x "$APKSTART_BIN" ] || [ ! -x "$APKSTARTD_BIN" ]; then
+if [ ! -x "$APKSTART_BIN" ] || [ ! -x "$APKSTARTD_BIN" ] || [ ! -x "$APKSTART_SETTINGS_BIN" ]; then
     echo "No se encontraron los binarios:" >&2
     echo "  $APKSTART_BIN" >&2
     echo "  $APKSTARTD_BIN" >&2
+    echo "  $APKSTART_SETTINGS_BIN" >&2
     echo "Compila primero: cargo build --release --locked" >&2
     exit 1
 fi
 
 install -Dm755 "$APKSTART_BIN" "$PREFIX/bin/apkstart"
 install -Dm755 "$APKSTARTD_BIN" "$PREFIX/bin/apkstartd"
+install -Dm755 "$APKSTART_SETTINGS_BIN" "$PREFIX/bin/apkstart-settings"
 install -Dm644 "$REPO_ROOT/LICENSE" "$PREFIX/share/licenses/models-apk/LICENSE"
 install -Dm755 "$SCRIPT_DIR/binfmt/install.sh" "$PREFIX/lib/models-apk/binfmt/install.sh"
 install -Dm644 "$SCRIPT_DIR/binfmt/models-apk.conf" "$PREFIX/lib/models-apk/binfmt/models-apk.conf"
 install -Dm755 "$SCRIPT_DIR/binfmt/uninstall.sh" "$PREFIX/lib/models-apk/binfmt/uninstall.sh"
 
 tmp_desktop="$(mktemp)"
+tmp_settings="$(mktemp)"
 tmp_service="$(mktemp)"
-trap 'rm -f "$tmp_desktop" "$tmp_service"' EXIT
+trap 'rm -f "$tmp_desktop" "$tmp_settings" "$tmp_service"' EXIT
 sed "s|@APKSTART_BIN@|$PREFIX/bin/apkstart|g" \
     "$SCRIPT_DIR/desktop/io.github.apkstart.install.desktop.in" > "$tmp_desktop"
 install -Dm644 "$tmp_desktop" "$PREFIX/share/applications/io.github.apkstart.install.desktop"
+
+sed "s|@APKSTART_SETTINGS@|$PREFIX/bin/apkstart-settings|g" \
+    "$SCRIPT_DIR/desktop/apkstart-settings.desktop.in" > "$tmp_settings"
+install -Dm644 "$tmp_settings" "$PREFIX/share/applications/io.github.apkstart.Settings.desktop"
 
 sed "s|@APKSTARTD@|$PREFIX/bin/apkstartd|g" \
     "$SCRIPT_DIR/systemd/apkstartd.service.in" > "$tmp_service"

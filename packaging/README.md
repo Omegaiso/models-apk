@@ -18,10 +18,10 @@ PREFIX=/usr sudo packaging/install.sh # /usr
 
 ## Qué debe hacer un paquete de distro
 
-1. Instalar los binarios `apkstart` y `apkstartd` (por ejemplo `/usr/bin/`).
+1. Instalar los binarios `apkstart`, `apkstartd` y `apkstart-settings` (por ejemplo `/usr/bin/`).
 2. Instalar `LICENSE`.
 3. Instalar `packaging/binfmt/install.sh`, `models-apk.conf` y `uninstall.sh` en `/usr/lib/models-apk/binfmt/`.
-4. Instalar `apkstartd.service` en `/usr/lib/systemd/user/` y la activación D-Bus en `/usr/share/dbus-1/services/` (el instalador local los genera desde `packaging/systemd/` y `packaging/dbus/`).
+4. Instalar `apkstartd.service` en `/usr/lib/systemd/user/`, la activación D-Bus en `/usr/share/dbus-1/services/` y el acceso a ajustes en `/usr/share/applications/io.github.apkstart.Settings.desktop` (el instalador local los genera desde `packaging/`).
 5. En `postinst`/`post_install` ejecutar:
    ```bash
    /usr/lib/models-apk/binfmt/install.sh /usr/bin/apkstart

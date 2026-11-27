@@ -7,6 +7,7 @@ members = [
     "crates/apkstart-app",
     "crates/apkstart-daemon",
     "crates/apkstart-cli",
+    "crates/apkstart-settings",
 ]
 
 [workspace.package]
@@ -21,12 +22,15 @@ apkstart-core = { path = "crates/apkstart-core" }
 apkstart-apk = { path = "crates/apkstart-apk" }
 apkstart-engine = { path = "crates/apkstart-engine" }
 apkstart-app = { path = "crates/apkstart-app" }
+apkstart-settings = { path = "crates/apkstart-settings" }
 apkstart-daemon = { path = "crates/apkstart-daemon" }
 
 anyhow = "1.0"
 apk-info = "1.1"
 clap = { version = "4.6", features = ["derive", "env"] }
 dirs = "7.0"
+gtk4 = "0.11"
+libadwaita = "0.9"
 png = "0.18"
 rusqlite = { version = "0.43", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }

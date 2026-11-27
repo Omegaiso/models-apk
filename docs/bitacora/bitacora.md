@@ -76,7 +76,7 @@
 - [ ] `apkstart-daemon`: `apkstartd`, D-Bus `org.apkstart.Manager1`, systemd --user
 - [x] `apkstart-cli`: doctor, runtime start/stop/status, install, launch, list, uninstall, settings, export-log
 - [ ] `apkstart-viewer` propio: el MVP usa scrcpy directamente, con `SDL_APP_ID` por app
-- [ ] `apkstart-settings`: GTK4 + libadwaita
+- [x] `apkstart-settings`: base GTK4 + libadwaita (Inicio, apps, instalar, diagnóstico); faltan red/periféricos/integración
 - [ ] `apkstart-integration`: red, audio, notificaciones, carpeta compartida (la entrada `.desktop` y el icono ya funcionan)
 
 ### Producto
@@ -94,7 +94,7 @@
 - [ ] Persistencia de tamaño/estado por app (tabla creada; falta conectar el viewer)
 - [ ] Audio, portapapeles y carpeta compartida integrados en la app (audio validado en el spike)
 - [ ] Red avanzada (proxy/DNS/port forwarding); el NAT básico lo pone el emulador
-- [ ] Ajustes GTK (runtime, apps, red, periféricos, integración, diagnóstico)
+- [x] Ajustes GTK base (runtime, apps, instalar, diagnóstico); red/periféricos/integración pendientes
 - [x] `apkstart doctor` y exportación de diagnóstico
 - [ ] Empaquetado de prueba (AppImage o deb)
 - [ ] Documentación de instalación y limitaciones
@@ -114,7 +114,7 @@
 | Fase | Alcance | Estado |
 |---|---|---|
 | 1 | `apkstartd` + D-Bus `org.apkstart.Manager1`, sesiones, systemd --user, CLI cliente, sustituir el timer | Parcial: daemon integra runtime, install, sync, launch, stop y sync loop; faltan sesiones/adopción |
-| 2 | UI GTK4/libadwaita: runtime, apps, instalar/desinstalar, ajustes, diagnóstico | Pendiente |
+| 2 | UI GTK4/libadwaita: runtime, apps, instalar/desinstalar, ajustes, diagnóstico | Parcial: Inicio, apps, instalar, diagnóstico y Acerca de |
 | 3 | Ventanas: persistencia de tamaño/estado, viewer propio o wrapper, límite multi-app, activity e iconos adaptativos | Parcial |
 | 4 | Integración: notificaciones bridge, carpeta compartida, red/proxy/DNS, portapapeles/audio, cámara/micrófono/gamepad/USB | Pendiente |
 | 5 | Empaquetado real Arch/deb/rpm, activación D-Bus, units systemd, hooks de instalación/desinstalación | Parcial: `packaging/install.sh` y hook binfmt |
@@ -329,6 +329,30 @@
 - El timeout de parada del emulador sube de 20 s a 60 s: con quickboot, guardar el snapshot puede tardar más. Verificado: parada real en ~15 s.
 - Verificación: `runtime status` por D-Bus, `runtime start` (~10 s con quickboot), `runtime stop` (~15 s), `launch`/`stop` de F-Droid; todo por el daemon.
 - Pendiente: tabla `sessions` v3, adopción de scrcpy y tests D-Bus.
+
+### 2026-11-27 — Fase 2: UI GTK4/libadwaita base
+
+**Implementado**
+- Nuevo crate `apkstart-settings` con `adw::Application` y ventana GTK4/libadwaita.
+- Navegación lateral: Inicio, Aplicaciones, Diagnóstico, Acerca de.
+- Inicio: estado del runtime, arrancar/detener y sincronizar.
+- Aplicaciones: lista desde `apkstart list --json`, icono, abrir/cerrar e instalar APK con `FileChooserNative` (`install --launch`).
+- Diagnóstico: salida de `apkstart doctor` y exportación de logs.
+- La UI delega en el binario `apkstart`; usa daemon/CLI existente sin hablar ADB directamente.
+- `apkstart setup` crea `io.github.apkstart.Settings.desktop` en el menú.
+- `packaging/install.sh` instala `apkstart-settings` y su acceso al menú.
+- `apkstart runtime status --json` para que la UI lea estado sin parsear texto.
+
+**Verificación**
+- La UI abre en KDE Wayland y muestra `Runtime: running`, serial y boot.
+- `desktop-file-validate` pasa (solo hint de dos categorías principales).
+- `cargo test --workspace` verde, `clippy -D warnings` limpio.
+
+**Pendiente de Fase 2**
+- Páginas de Red, Periféricos e Integración.
+- Desinstalación y detalle por app (tamaño, permisos, ABI).
+- Persistencia de tamaño de ventana (Fase 3) y viewer propio.
+- Sustituir las llamadas al CLI por cliente D-Bus directo cuando la UI crezca.
 
 
 ---

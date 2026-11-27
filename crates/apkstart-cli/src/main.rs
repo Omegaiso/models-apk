@@ -97,7 +97,11 @@ enum Command {
 #[derive(Debug, Subcommand)]
 enum RuntimeCommand {
     /// Estado actual del emulador.
-    Status,
+    Status {
+        /// Salida JSON para la UI.
+        #[arg(long)]
+        json: bool,
+    },
     /// Arranca el emulador y espera a que Android termine de bootear.
     Start,
     /// Detiene el emulador.
@@ -178,6 +182,12 @@ async fn setup(config: &Config) -> Result<()> {
         println!("  doble clic en un APK: listo");
     } else {
         println!("  aviso: no se pudo fijar el handler con xdg-mime; revisa xdg-utils");
+    }
+
+    match install_settings_entry(&executable) {
+        Ok(Some(path)) => println!("  ajustes GTK: {}", path.display()),
+        Ok(None) => println!("  aviso: no se encontró apkstart-settings junto al binario"),
+        Err(error) => println!("  aviso: no se pudo crear el acceso a ajustes: {error}"),
     }
 
     match install_daemon_service(&executable) {
@@ -277,6 +287,43 @@ fn install_sync_timer(executable: &Path) -> Result<bool> {
         .map(|status| status.success())
         .unwrap_or(false);
     Ok(enabled)
+}
+
+fn install_settings_entry(executable: &Path) -> Result<Option<PathBuf>> {
+    let settings = executable.with_file_name("apkstart-settings");
+    if !settings.is_file() {
+        return Ok(None);
+    }
+    let Some(data_dir) = dirs::data_dir() else {
+        return Ok(None);
+    };
+    let applications = data_dir.join("applications");
+    fs::create_dir_all(&applications)?;
+    let path = applications.join("io.github.apkstart.Settings.desktop");
+    let exec = format!("\"{}\"", escape_desktop_exec(&settings.to_string_lossy()));
+    let content = format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=models-apk\n\
+         Comment=Administrar aplicaciones Android\n\
+         Exec={exec}\n\
+         Icon=system-software-install\n\
+         Terminal=false\n\
+         Categories=Settings;System;\n\
+         StartupNotify=true\n\
+         StartupWMClass=io.github.apkstart.Settings\n"
+    );
+    fs::write(&path, content)?;
+    apkstart_core::desktop::refresh_caches(&DesktopPaths::default());
+    Ok(Some(path))
+}
+
+fn escape_desktop_exec(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('`', "\\`")
 }
 
 fn remove_legacy_sync_timer() {
@@ -400,13 +447,17 @@ fn print_runtime_status(status: &apkstart_core::RuntimeStatus) {
 async fn runtime(config: &Config, command: RuntimeCommand) -> Result<()> {
     let emulator = AndroidEmulator::new(config.clone());
     match command {
-        RuntimeCommand::Status => {
+        RuntimeCommand::Status { json } => {
             let status = match daemon::runtime_status().await {
                 daemon::Call::Ok(json) => serde_json::from_str(&json)
                     .context("respuesta de estado inválida del daemon")?,
                 daemon::Call::Unavailable => emulator.status().await,
                 daemon::Call::Failed(error) => bail!("apkstartd: {error}"),
             };
+            if json {
+                println!("{}", serde_json::to_string_pretty(&status)?);
+                return Ok(());
+            }
             print_runtime_status(&status);
             if status.boot_completed {
                 let adb = Adb::new(config);

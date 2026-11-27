@@ -3,8 +3,8 @@
 ## Contexto que no se deduce de los nombres
 
 - Proyecto/repo: **models-apk** (`github.com/Omegaiso/models-apk`). Los identificadores internos siguen siendo `apkstart-*` y el binario `apkstart`; no hagas un rename masivo sin migrar configuración, SQLite, `.desktop` y `app_id`.
-- El repo implementa hoy **seis crates**: `apkstart-core`, `apkstart-apk`, `apkstart-engine`, `apkstart-app`, `apkstart-daemon` (`apkstartd`) y `apkstart-cli`.
-- `docs/plan-inicial/` describe el diseño completo. **Aún no existen** `apkstart-settings` (GTK4), `apkstart-viewer` propio ni `apkstart-integration`.
+- El repo implementa hoy **siete crates**: `apkstart-core`, `apkstart-apk`, `apkstart-engine`, `apkstart-app`, `apkstart-daemon` (`apkstartd`), `apkstart-cli` y `apkstart-settings` (GTK4/libadwaita).
+- `docs/plan-inicial/` describe el diseño completo. **Aún no existen** `apkstart-viewer` propio ni `apkstart-integration`.
 - `apkstartd` expone D-Bus (`org.apkstart.Manager1`): runtime status/start/stop, listar, instalar, sincronizar, lanzar y cerrar app. `install`, `sync`, `launch` y `stop` del CLI lo usan si está disponible y caen al modo directo si no. El daemon tiene un bucle de sync cada 15 s; el timer antiguo se retira al activarlo. Aún no persiste sesiones/adopta scrcpy.
 - Motor fijado para el MVP: **Android Emulator oficial + API 34 x86_64 `google_apis`**. Prioridad: estabilidad y usabilidad. No migrar a QEMU puro/Waydroid ni introducir Electron/Node/Java en el producto host (el SDK/`sdkmanager` puede usar Java como herramienta).
 - La bitácora vigente es **`docs/bitacora/bitacora.md`**. Es append-only: al cerrar un bloque añade una entrada; no reescribas el historial.
@@ -21,6 +21,7 @@ cargo run -p apkstart-cli -- doctor
 cargo run -p apkstart-cli -- setup
 cargo run -p apkstart-cli -- sync
 cargo run -p apkstart-daemon            # apkstartd en primer plano
+cargo run -p apkstart-settings          # UI GTK4/libadwaita
 target/debug/apkstart doctor
 busctl --user call org.apkstart.Manager1 /org/apkstart/Manager1 org.apkstart.Manager1 GetVersion
 
@@ -76,6 +77,7 @@ target/debug/apkstart runtime stop
 - `apkstart-app`: install/registro/sync compartido entre CLI y daemon; aquí vive `register_app_from_apk` y `sync_apps`.
 - `apkstart-daemon`: `Manager` (sesiones scrcpy en memoria, install/sync con lock) + `apkstartd` D-Bus y bucle de sync.
 - `apkstart-cli`: binario `apkstart`; `src/daemon.rs` es el cliente D-Bus con fallback directo.
+- `apkstart-settings`: UI GTK4/libadwaita; llama al binario `apkstart` (runtime/apps/instalar/diagnóstico) y crea su entrada de menú con `apkstart setup`.
 - Documentación y mensajes de usuario en español; identificadores y código en inglés.
 
 ## Documentos
