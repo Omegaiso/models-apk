@@ -16,6 +16,7 @@
 | 2026-11-27 | SDK de Android en el home del usuario (`~/Android/Sdk`) | No requiere root ni contamina el sistema; el usuario controla licencias e imágenes. |
 | 2026-11-27 | Nombre del proyecto/repositorio: **models-apk** (`github.com/Omegaiso/models-apk`) | Nombre elegido por el usuario. Los identificadores internos `apkstart-*` se mantienen hasta un rename controlado. |
 | 2026-11-27 | Licencia del código propio: **MIT** (`LICENSE`) | Proyecto enteramente open source; licencia permisiva y simple. |
+| 2026-11-27 | La instalación completa registra `binfmt_misc` automáticamente | Requisito del usuario: `./app.apk` debe funcionar sin pedir comandos con sudo al final. |
 
 ---
 
@@ -87,6 +88,8 @@
 - [x] Sincronización automática de apps instaladas dentro de Android (timer systemd --user de 15 s)
 - [x] Ejecución `./app.apk` vía `binfmt_misc` (script incluido; requiere root)
 - [x] Licencia MIT
+- [x] Instalador local (`packaging/install.sh`) con registro binfmt automático
+- [ ] Paquete de distro (postinst ejecuta el hook binfmt; especificado en `packaging/README.md`)
 - [ ] Persistencia de tamaño/estado por app (tabla creada; falta conectar el viewer)
 - [ ] Audio, portapapeles y carpeta compartida integrados en la app (audio validado en el spike)
 - [ ] Red avanzada (proxy/DNS/port forwarding); el NAT básico lo pone el emulador
@@ -229,6 +232,21 @@
 - `binfmt_misc` no se registró por requerir root; el script está listo y validado con `bash -n`.
 - El timer es un puente hasta `apkstartd`; no sustituye al daemon del plan.
 - El handler de doble clic usa `Terminal=true` para mostrar progreso; la UI GTK llegará después.
+
+### 2026-11-27 — Instalación automática de binfmt
+
+**Requisito del usuario:** en la versión completa, el registro de `binfmt_misc` para `./app.apk` debe ser automático al instalar; no se debe pedir `sudo packaging/binfmt/install.sh ...` al usuario final.
+
+**Implementado**
+- `packaging/install.sh`: instala el binario, licencia, handler `.desktop` y scripts binfmt en el prefijo (`/usr/local` o `/usr`), y llama automáticamente a `packaging/binfmt/install.sh` con el binario instalado.
+- `packaging/binfmt/uninstall.sh`: limpia la entrada binfmt y el wrapper para los hooks de desinstalación.
+- `packaging/README.md`: regla obligatoria para paquetes de distro (`postinst`/`post_install` debe ejecutar el hook binfmt; `prerm`/`pre_remove` debe desregistrarlo).
+- README y AGENTS documentan que la instalación completa registra binfmt sin intervención y que el comando manual es solo para desarrollo.
+
+**Estado**
+- Scripts validados con `bash -n`; la plantilla `.desktop` se puede validar con `desktop-file-validate`.
+- No se ejecutó `packaging/install.sh` porque requiere root y esta sesión no tiene sudo sin contraseña. El paquete de distro real queda pendiente.
+- El instalador local no activa el timer/MIME de cada usuario; eso sigue siendo `apkstart setup` por usuario hasta que exista `apkstartd`/empaquetado completo.
 
 ---
 

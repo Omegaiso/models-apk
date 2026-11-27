@@ -57,6 +57,17 @@ cargo test
 cargo run -p apkstart-cli -- doctor
 ```
 
+## Instalación completa
+
+```bash
+cargo build --release --locked
+sudo packaging/install.sh          # /usr/local
+# o: PREFIX=/usr sudo packaging/install.sh
+apkstart setup                     # MIME/timer del usuario actual
+```
+
+`packaging/install.sh` registra **automáticamente** `binfmt_misc` para que `./app.apk` funcione; no se debe pedir al usuario el comando manual. Los paquetes de distro deben ejecutar el mismo hook en `postinst` (ver [`packaging/README.md`](packaging/README.md)).
+
 ## Uso rápido
 
 ```bash
@@ -85,7 +96,7 @@ cargo run -p apkstart-cli -- launch com.example.app
 - `setup` registra el handler MIME `application/vnd.android.package-archive`: al hacer doble clic en un APK descargado desde el navegador se instala y se abre. En el MVP se abre una terminal para ver el progreso.
 - `setup` también activa un timer de `systemd --user` cada 15 s que sincroniza las apps instaladas **dentro** de Android (por ejemplo desde F-Droid) con el escritorio Linux. Si el timer no está disponible, ejecuta `apkstart sync` o `apkstart sync --refresh`.
 - Las apps con icono vectorial/adaptive sin bitmap usan un icono de respaldo con su inicial; el icono adaptativo completo queda pendiente.
-- Para ejecutar un APK como un binario (`./app.apk`), Linux necesita `binfmt_misc` y permisos de ejecución. Una vez:
+- Para ejecutar un APK como un binario (`./app.apk`), Linux necesita `binfmt_misc` y permisos de ejecución. En una instalación completa, `packaging/install.sh` lo registra automáticamente. Solo para desarrollo sin instalar:
 
 ```bash
 sudo packaging/binfmt/install.sh /ruta/a/target/debug/apkstart

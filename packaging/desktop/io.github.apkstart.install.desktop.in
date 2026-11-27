@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Instalar APK de Android
+Comment=Instalar y abrir una aplicación Android con models-apk
+Exec=@APKSTART_BIN@ install --launch %f
+Icon=system-software-install
+Terminal=true
+NoDisplay=true
+Categories=Utility;
+StartupNotify=true
+MimeType=application/vnd.android.package-archive;
+X-ApkStart-Installer=true
