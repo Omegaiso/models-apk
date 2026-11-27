@@ -1,0 +1,19 @@
+[package]
+name = "apkstart-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Tipos, configuración, errores y persistencia de ApkStart"
+
+[dependencies]
+dirs.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

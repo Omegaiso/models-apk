@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/apkstart-core",
+    "crates/apkstart-apk",
+    "crates/apkstart-engine",
+    "crates/apkstart-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+authors = ["ApkStart contributors"]
+
+[workspace.dependencies]
+apkstart-core = { path = "crates/apkstart-core" }
+apkstart-apk = { path = "crates/apkstart-apk" }
+apkstart-engine = { path = "crates/apkstart-engine" }
+
+anyhow = "1.0"
+apk-info = "1.1"
+clap = { version = "4.6", features = ["derive", "env"] }
+dirs = "7.0"
+rusqlite = { version = "0.43", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3.0"
+thiserror = "2.0"
+tokio = { version = "1.54", features = [
+    "rt-multi-thread",
+    "macros",
+    "process",
+    "time",
+    "fs",
+    "signal",
+    "io-util",
+] }
+toml = "1.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

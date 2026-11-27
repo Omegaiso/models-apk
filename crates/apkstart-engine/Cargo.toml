@@ -1,0 +1,15 @@
+[package]
+name = "apkstart-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Motor Android Emulator, ADB y sesiones scrcpy"
+
+[dependencies]
+apkstart-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
