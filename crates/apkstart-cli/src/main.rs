@@ -389,6 +389,7 @@ fn register_app_from_apk(config: &Config, apk: &Path, info: &ApkInfo, quiet: boo
         min_sdk: info.min_sdk,
         target_sdk: info.target_sdk,
         abis: info.abis.clone(),
+        categories: info.categories.clone(),
         orientation: None,
         installed_at: previous
             .as_ref()

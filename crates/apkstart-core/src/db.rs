@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS apps (
     min_sdk           INTEGER,
     target_sdk        INTEGER,
     abis              TEXT NOT NULL DEFAULT '[]',
+    categories        TEXT NOT NULL DEFAULT '[]',
     orientation       TEXT,
     installed_at      INTEGER NOT NULL,
     last_launched_at  INTEGER,
@@ -40,7 +41,7 @@ CREATE TABLE IF NOT EXISTS settings (
     value             TEXT NOT NULL
 );
 
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 "#;
 
 pub struct Db {
@@ -81,7 +82,16 @@ impl Db {
                 self.conn.execute_batch(SCHEMA)?;
                 Ok(())
             }
-            1 => Ok(()),
+            // v1 -> v2: categorías freedesktop por app. `ALTER TABLE` añade la
+            // columna con valor por defecto y no toca las filas existentes.
+            1 => {
+                self.conn.execute_batch(
+                    "ALTER TABLE apps ADD COLUMN categories TEXT NOT NULL DEFAULT '[]';
+                     PRAGMA user_version = 2;",
+                )?;
+                Ok(())
+            }
+            2 => Ok(()),
             other => Err(Error::InvalidState(format!(
                 "versión de base de datos desconocida: {other}"
             ))),
@@ -90,11 +100,13 @@ impl Db {
 
     pub fn upsert_app(&self, app: &App) -> Result<()> {
         let abis = serde_json::to_string(&app.abis).unwrap_or_else(|_| "[]".to_string());
+        let categories =
+            serde_json::to_string(&app.categories).unwrap_or_else(|_| "[]".to_string());
         self.conn.execute(
             "INSERT INTO apps (
                 package, label, version_name, version_code, activity, icon_path, apk_path,
-                min_sdk, target_sdk, abis, orientation, installed_at, last_launched_at, enabled
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                min_sdk, target_sdk, abis, categories, orientation, installed_at, last_launched_at, enabled
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
              ON CONFLICT(package) DO UPDATE SET
                 label = excluded.label,
                 version_name = excluded.version_name,
@@ -105,6 +117,7 @@ impl Db {
                 min_sdk = excluded.min_sdk,
                 target_sdk = excluded.target_sdk,
                 abis = excluded.abis,
+                categories = excluded.categories,
                 orientation = excluded.orientation,
                 installed_at = excluded.installed_at,
                 last_launched_at = excluded.last_launched_at,
@@ -120,6 +133,7 @@ impl Db {
                 app.min_sdk,
                 app.target_sdk,
                 abis,
+                categories,
                 app.orientation,
                 app.installed_at,
                 app.last_launched_at,
@@ -132,7 +146,7 @@ impl Db {
     pub fn get_app(&self, package: &str) -> Result<Option<App>> {
         let mut statement = self.conn.prepare(
             "SELECT package, label, version_name, version_code, activity, icon_path, apk_path,
-                    min_sdk, target_sdk, abis, orientation, installed_at, last_launched_at, enabled
+                    min_sdk, target_sdk, abis, categories, orientation, installed_at, last_launched_at, enabled
              FROM apps WHERE package = ?1",
         )?;
         let app = statement.query_row([package], row_to_app).optional()?;
@@ -142,7 +156,7 @@ impl Db {
     pub fn list_apps(&self) -> Result<Vec<App>> {
         let mut statement = self.conn.prepare(
             "SELECT package, label, version_name, version_code, activity, icon_path, apk_path,
-                    min_sdk, target_sdk, abis, orientation, installed_at, last_launched_at, enabled
+                    min_sdk, target_sdk, abis, categories, orientation, installed_at, last_launched_at, enabled
              FROM apps ORDER BY label COLLATE NOCASE ASC",
         )?;
         let apps = statement
@@ -242,6 +256,7 @@ fn path_to_string(path: Option<&Path>) -> Option<String> {
 
 fn row_to_app(row: &rusqlite::Row<'_>) -> rusqlite::Result<App> {
     let abis: String = row.get(9)?;
+    let categories: String = row.get(10)?;
     Ok(App {
         package: row.get(0)?,
         label: row.get(1)?,
@@ -253,10 +268,11 @@ fn row_to_app(row: &rusqlite::Row<'_>) -> rusqlite::Result<App> {
         min_sdk: row.get(7)?,
         target_sdk: row.get(8)?,
         abis: serde_json::from_str(&abis).unwrap_or_default(),
-        orientation: row.get(10)?,
-        installed_at: row.get(11)?,
-        last_launched_at: row.get(12)?,
-        enabled: row.get::<_, i64>(13)? != 0,
+        categories: serde_json::from_str(&categories).unwrap_or_default(),
+        orientation: row.get(11)?,
+        installed_at: row.get(12)?,
+        last_launched_at: row.get(13)?,
+        enabled: row.get::<_, i64>(14)? != 0,
     })
 }
 
@@ -277,6 +293,7 @@ mod tests {
             min_sdk: Some(34),
             target_sdk: Some(35),
             abis: vec!["x86_64".to_string(), "arm64-v8a".to_string()],
+            categories: vec!["Network".to_string(), "WebBrowser".to_string()],
             orientation: None,
             installed_at: now_unix(),
             last_launched_at: None,
@@ -306,6 +323,54 @@ mod tests {
         assert_eq!(stored.label, "Example actualizada");
         assert_eq!(stored.version_code, 43);
         assert_eq!(db.list_apps().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn migrates_v1_database_to_v2_without_losing_data() {
+        // Esquema v1 (sin `categories`) con una fila ya registrada.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE apps (
+                package           TEXT PRIMARY KEY,
+                label             TEXT NOT NULL,
+                version_name      TEXT,
+                version_code      INTEGER NOT NULL DEFAULT 0,
+                activity          TEXT,
+                icon_path         TEXT,
+                apk_path          TEXT,
+                min_sdk           INTEGER,
+                target_sdk        INTEGER,
+                abis              TEXT NOT NULL DEFAULT '[]',
+                orientation       TEXT,
+                installed_at      INTEGER NOT NULL,
+                last_launched_at  INTEGER,
+                enabled           INTEGER NOT NULL DEFAULT 1
+            );
+            INSERT INTO apps (package, label, installed_at)
+            VALUES ('org.example.app', 'Example', 12345);
+            PRAGMA user_version = 1;",
+        )
+        .unwrap();
+
+        let db = Db::from_connection(conn).unwrap();
+        let app = db.get_app("org.example.app").unwrap().unwrap();
+        assert_eq!(app.label, "Example");
+        assert!(app.categories.is_empty());
+
+        let version: i64 = db
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+
+        // La columna migrada acepta escrituras y las conserva.
+        let mut updated = app;
+        updated.categories = vec!["Game".to_string()];
+        db.upsert_app(&updated).unwrap();
+        assert_eq!(
+            db.get_app("org.example.app").unwrap().unwrap().categories,
+            vec!["Game".to_string()]
+        );
     }
 
     #[test]

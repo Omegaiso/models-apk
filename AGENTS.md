@@ -54,7 +54,8 @@ target/debug/apkstart runtime stop
 - **Persistencia:** el AVD no debe tener `disk.dataPartition.path=<temp>` y el arranque normal **no** debe usar `-no-snapshot-load`; debe usar quickboot. Si no, los APK desaparecen al reiniciar. `APKSTART_COLD_BOOT=1` es solo para recuperación. `doctor` avisa del AVD temporal.
 - **Identidad de ventana:** `apkstart-engine` exporta `SDL_APP_ID=io.github.apkstart.<pkg>` a scrcpy. No lo quites: sin eso todas las apps usan la clase `scrcpy` y pierden icono/agrupación. El `.desktop` y `StartupWMClass` usan el mismo id.
 - **Configuración:** `~/.config/apkstart/config.toml` (opcional) + variables `APKSTART_*`; `APKSTART_CONFIG` cambia el archivo. SDK por defecto `~/Android/Sdk`; scrcpy se autodetecta en `PATH` o `~/.local/opt/scrcpy`.
-- **Datos:** SQLite en `~/.local/share/apkstart/apkstart.db`, esquema con `PRAGMA user_version` (hoy 1). No cambies columnas sin migración.
+- **Datos:** SQLite en `~/.local/share/apkstart/apkstart.db`, esquema con `PRAGMA user_version` (hoy 2, categorías; el daemon añadirá 3). No cambies columnas sin migración.
+- **Categorías:** los `.desktop` usan `Categories=` freedesktop a partir de `android:appCategory` + heurísticas de package/label; un `sync --refresh` regenera entradas antiguas.
 - **APK:** el parser es `apk-info` (Apache-2.0), no un AXML propio. Entradas: `read_apk`, `read_icon` y `read_resource`.
 - **Activity:** `apk-info` devuelve la primera activity de launcher; en F-Droid sale `IconActivity`. `scrcpy --start-app` abre bien, pero no asumas que `App.activity` es la principal.
 - **Iconos:** se guardan en la carpeta hicolor según el tamaño del PNG (48×48 → `hicolor/48x48`); adaptive icons y elegir la máxima densidad siguen pendientes.

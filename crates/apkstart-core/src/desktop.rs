@@ -368,6 +368,27 @@ fn write_icon(bytes: &[u8], app_id: &str, paths: &DesktopPaths) -> Result<Option
     Ok(Some(path))
 }
 
+/// `Categories=` de la entrada `.desktop`: categorías separadas por `;` y
+/// terminadas en `;`. Si la app no tiene clasificación, cae a `Utility`.
+/// Cada nombre se reduce a caracteres alfanuméricos para que un valor corrupto
+/// de la base de datos no pueda inyectar `;` ni saltos de línea.
+fn desktop_categories(categories: &[String]) -> String {
+    let mut names = categories
+        .iter()
+        .map(|category| {
+            category
+                .chars()
+                .filter(|character| character.is_ascii_alphanumeric())
+                .collect::<String>()
+        })
+        .filter(|category| !category.is_empty())
+        .collect::<Vec<_>>();
+    if names.is_empty() {
+        names.push("Utility".to_string());
+    }
+    format!("{};", names.join(";"))
+}
+
 fn write_desktop_entry(
     app: &App,
     app_id: &str,
@@ -389,6 +410,7 @@ fn write_desktop_entry(
     } else {
         "application-x-executable".to_string()
     };
+    let categories = desktop_categories(&app.categories);
     let content = format!(
         "[Desktop Entry]\n\
          Type=Application\n\
@@ -397,7 +419,7 @@ fn write_desktop_entry(
          Exec={exec}\n\
          Icon={icon}\n\
          Terminal=false\n\
-         Categories=Utility;\n\
+         Categories={categories}\n\
          StartupNotify=true\n\
          StartupWMClass={app_id}\n\
          X-ApkStart-Package={package}\n",
@@ -480,6 +502,7 @@ mod tests {
             min_sdk: Some(34),
             target_sdk: Some(35),
             abis: vec![],
+            categories: vec![],
             orientation: None,
             installed_at: now_unix(),
             last_launched_at: None,
@@ -517,6 +540,35 @@ mod tests {
         assert!(content.contains("Name=Example App"));
         assert!(content.contains("Exec=\"/opt/apkstart\" launch org.example.app"));
         assert!(content.contains("StartupWMClass=io.github.apkstart.org.example.app"));
+        assert!(content.contains("Categories=Utility;"));
+    }
+
+    #[test]
+    fn writes_categories_from_app() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = DesktopPaths {
+            data_home: temp.path().to_path_buf(),
+        };
+        let mut app = sample_app();
+        app.categories = vec!["Network".to_string(), "WebBrowser".to_string()];
+        let entry = install(&app, None, Path::new("/opt/apkstart"), &paths).unwrap();
+        let content = std::fs::read_to_string(&entry.desktop_file).unwrap();
+        assert!(content.contains("Categories=Network;WebBrowser;"));
+    }
+
+    #[test]
+    fn formats_desktop_categories() {
+        assert_eq!(desktop_categories(&[]), "Utility;");
+        assert_eq!(desktop_categories(&["Game".to_string()]), "Game;");
+        assert_eq!(
+            desktop_categories(&["Network".to_string(), "WebBrowser".to_string()]),
+            "Network;WebBrowser;"
+        );
+        // Valores corruptos no inyectan `;` ni saltos de línea.
+        assert_eq!(
+            desktop_categories(&["Game\n".to_string(), "".to_string()]),
+            "Game;"
+        );
     }
 
     #[test]

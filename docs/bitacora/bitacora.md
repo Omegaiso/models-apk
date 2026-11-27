@@ -86,6 +86,7 @@
 - [x] Una ventana Wayland por app con título y `app_id` único (`SDL_APP_ID`)
 - [x] Instalar APK desde el gestor de archivos (MIME) y por doble clic (`apkstart setup`)
 - [x] Sincronización automática de apps instaladas dentro de Android (timer systemd --user de 15 s)
+- [x] Clasificación de apps Android en categorías freedesktop (Internet, Juegos, Multimedia, etc.)
 - [x] Ejecución `./app.apk` vía `binfmt_misc` (script incluido; requiere root)
 - [x] Licencia MIT
 - [x] Instalador local (`packaging/install.sh`) con registro binfmt automático
@@ -107,6 +108,23 @@
 - [x] Revisión de licencias documentada (no redistribuir Google)
 
 ---
+
+## 4.1 Fases de implementación (acordadas 2026-11-27)
+
+| Fase | Alcance | Estado |
+|---|---|---|
+| 1 | `apkstartd` + D-Bus `org.apkstart.Manager1`, sesiones, systemd --user, CLI cliente, sustituir el timer | En diseño/implementación |
+| 2 | UI GTK4/libadwaita: runtime, apps, instalar/desinstalar, ajustes, diagnóstico | Pendiente |
+| 3 | Ventanas: persistencia de tamaño/estado, viewer propio o wrapper, límite multi-app, activity e iconos adaptativos | Parcial |
+| 4 | Integración: notificaciones bridge, carpeta compartida, red/proxy/DNS, portapapeles/audio, cámara/micrófono/gamepad/USB | Pendiente |
+| 5 | Empaquetado real Arch/deb/rpm, activación D-Bus, units systemd, hooks de instalación/desinstalación | Parcial: `packaging/install.sh` y hook binfmt |
+| 6 | Calidad: tests de integración, matriz de compositores, fuzz, recuperación, documentación de límites | Pendiente |
+
+**Nota de migración SQLite:** la clasificación de apps añade `apps.categories` como `user_version = 2`; la Fase 1 del daemon añadirá la tabla `sessions` como `user_version = 3`. No mezclar ambas migraciones en la misma versión.
+
+**Criterio de cierre de la Fase 1:** el daemon es el único dueño del runtime; el CLI no arranca instancias paralelas; `runtime`, `launch`, `install`, `sync` y las sesiones funcionan por D-Bus; el timer se retira; systemd puede arrancar/parar el servicio y hay pruebas de integración con emulador.
+
+**Criterio de clasificación de apps:** cada `.desktop` usa categorías freedesktop (`Network;WebBrowser;`, `Game;`, `AudioVideo;`, etc.) y aparece en la categoría correcta del lanzador KDE/GNOME.
 
 ## 5. Registro de trabajo
 
@@ -247,6 +265,15 @@
 - Scripts validados con `bash -n`; la plantilla `.desktop` se puede validar con `desktop-file-validate`.
 - No se ejecutó `packaging/install.sh` porque requiere root y esta sesión no tiene sudo sin contraseña. El paquete de distro real queda pendiente.
 - El instalador local no activa el timer/MIME de cada usuario; eso sigue siendo `apkstart setup` por usuario hasta que exista `apkstartd`/empaquetado completo.
+
+### 2026-11-27 — Clasificación de apps por categorías
+
+- `ApkInfo` incluye `android_category` y `categories`; se leen `android:appCategory` y se aplican heurísticas por package/label, con permisos solo para accesibilidad.
+- Mapeo principal: navegador → `Network;WebBrowser;`, juego → `Game;`, audio/vídeo → `AudioVideo;`, imagen → `Graphics;`, social → `Network;InstantMessaging;`, productividad → `Office;`, F-Droid → `System;`, desconocido → `Utility;`.
+- `App.categories` y SQLite `user_version = 2` con migración `ALTER TABLE apps ADD COLUMN categories ...` sin perder datos.
+- `.desktop` escribe `Categories=` saneado y semicolon-terminated; F-Droid aparece en Sistema y un juego en Juegos.
+- Tests añadidos: 9 de clasificación/APK, migración v1→v2 y formato/saneo de categorías; `cargo test --workspace` verde (11+6+19+2), clippy limpio.
+- Las entradas existentes no cambian hasta `apkstart sync --refresh` o reinstalar; F-Droid ya se regeneró como `System;`.
 
 ---
 

@@ -15,6 +15,8 @@ pub struct App {
     pub min_sdk: Option<i64>,
     pub target_sdk: Option<i64>,
     pub abis: Vec<String>,
+    /// Categorías freedesktop para colocar la app en el menú del escritorio.
+    pub categories: Vec<String>,
     pub orientation: Option<String>,
     pub installed_at: i64,
     pub last_launched_at: Option<i64>,
