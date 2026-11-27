@@ -32,8 +32,11 @@ Pendiente: input/portapapeles manual, compositores Hyprland/GNOME, `FLAG_SECURE`
 
 - Inicio: estado del runtime, arrancar/detener, sincronizar.
 - Aplicaciones: lista con icono, abrir/cerrar e instalar APK.
-- Diagnóstico: `doctor` y exportación de logs.
+- Recursos: CPU/RAM agregados de `apkstartd`, emulador, scrcpy, ADB y la UI.
+- Diagnóstico: `doctor`, logs en vivo cada 2 s y exportación de logs.
 - Acerca de: versión y licencia.
+
+En `btop`/monitor de sistema los procesos aparecen con sus nombres reales (`apkstartd`, `qemu-system-x86_64-headless`, `scrcpy`); la página **Recursos** los agrupa como models-apk. El servicio está en `models-apk.slice`, así que `systemd-cgls --user | grep -A4 models-apk.slice` o `systemd-cgtop -1 -b --depth=5 | grep models-apk` muestran la agrupación.
 
 `apkstart setup` crea el acceso `io.github.apkstart.Settings.desktop` en el menú. La UI delega en el binario `apkstart`, que usa el daemon cuando está disponible.
 

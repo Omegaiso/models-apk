@@ -224,6 +224,7 @@ name = "apkstart-settings"
 version = "0.1.0"
 dependencies = [
  "apkstart-core",
+ "dirs",
  "gtk4",
  "libadwaita",
  "serde_json",

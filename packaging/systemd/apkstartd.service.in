@@ -4,6 +4,10 @@ Description=Daemon de models-apk (apkstartd)
 [Service]
 Type=dbus
 BusName=org.apkstart.Manager1
+Slice=models-apk.slice
+CPUAccounting=yes
+MemoryAccounting=yes
+IOAccounting=yes
 ExecStart=@APKSTARTD@
 Restart=on-failure
 RestartSec=3

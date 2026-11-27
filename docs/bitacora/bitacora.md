@@ -354,6 +354,13 @@
 - Persistencia de tamaño de ventana (Fase 3) y viewer propio.
 - Sustituir las llamadas al CLI por cliente D-Bus directo cuando la UI crezca.
 
+### 2026-11-27 — Transparencia de recursos y logs en vivo
+
+- Nueva página **Recursos** en `apkstart-settings`: agrupa CPU media y RAM de `apkstartd`, emulador, scrcpy, ADB del proyecto y la propia UI, con total y refresco cada 2 s.
+- `apkstartd.service` entra en `models-apk.slice` con CPU/Memory/IO accounting; `systemd-cgls --user` y `systemd-cgtop -1 -b --depth=5` muestran el agregado aunque btop liste los procesos por nombre.
+- La pestaña **Logs en vivo** de Diagnóstico mezcla `journalctl -u apkstartd`, `emulator.log` y la última sesión, actualizando cada 2 s; Doctor sigue siendo una foto bajo demanda.
+- Verificado en la UI: `Total models-apk: 9.6% CPU medio · 149.0 MiB RAM · 3 procesos` con runtime parado (daemon + ADB + UI).
+
 
 ---
 

@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
@@ -20,8 +21,22 @@ fn main() -> gtk::glib::ExitCode {
 enum Msg {
     Status(Result<RuntimeStatus, String>),
     Apps(Result<Vec<App>, String>),
+    Resources(Result<ResourceReport, String>),
     Doctor(String),
     ActionResult(Result<String, String>),
+}
+
+struct ResourceProcess {
+    pid: u32,
+    name: String,
+    cpu: f32,
+    rss_kb: u64,
+}
+
+struct ResourceReport {
+    processes: Vec<ResourceProcess>,
+    total_cpu: f32,
+    total_rss_kb: u64,
 }
 
 fn build_ui(app: &adw::Application) {
@@ -52,6 +67,14 @@ fn build_ui(app: &adw::Application) {
     apps_list.set_hexpand(true);
     let apps = build_apps(&tx, &window, &apps_list);
 
+    let resources_list = gtk::ListBox::new();
+    resources_list.set_selection_mode(gtk::SelectionMode::None);
+    resources_list.set_hexpand(true);
+    let resources_summary = gtk::Label::new(Some("Recursos: consultando…"));
+    resources_summary.set_xalign(0.0);
+    resources_summary.set_wrap(true);
+    let resources = build_resources(&tx, &resources_list, &resources_summary);
+
     let doctor_view = gtk::TextView::new();
     doctor_view.set_editable(false);
     doctor_view.set_monospace(true);
@@ -65,6 +88,7 @@ fn build_ui(app: &adw::Application) {
     stack.set_vexpand(true);
     stack.add_named(&home, Some("home"));
     stack.add_named(&apps, Some("apps"));
+    stack.add_named(&resources, Some("resources"));
     stack.add_named(&diagnostics, Some("diagnostics"));
     stack.add_named(&about, Some("about"));
     stack.set_visible_child_name("home");
@@ -76,6 +100,7 @@ fn build_ui(app: &adw::Application) {
     let pages = [
         ("Inicio", "go-home-symbolic", "home"),
         ("Aplicaciones", "applications-other-symbolic", "apps"),
+        ("Recursos", "utilities-system-monitor-symbolic", "resources"),
         ("Diagnóstico", "dialog-information-symbolic", "diagnostics"),
         ("Acerca de", "help-about-symbolic", "about"),
     ];
@@ -119,6 +144,8 @@ fn build_ui(app: &adw::Application) {
     let tx_handler = tx.clone();
     let status_for_handler = status_label.clone();
     let apps_for_handler = apps_list.clone();
+    let resources_list_for_handler = resources_list.clone();
+    let resources_summary_for_handler = resources_summary.clone();
     let doctor_for_handler = doctor_view.clone();
     let toast_for_handler = toast_overlay.clone();
     gtk::glib::timeout_add_local(Duration::from_millis(100), move || {
@@ -139,6 +166,19 @@ fn build_ui(app: &adw::Application) {
                     Err(error) => {
                         clear_list(&apps_for_handler);
                         apps_for_handler.append(&error_row(&error));
+                    }
+                },
+                Msg::Resources(result) => match result {
+                    Ok(report) => {
+                        fill_resources(
+                            &resources_list_for_handler,
+                            &resources_summary_for_handler,
+                            &report,
+                        );
+                    }
+                    Err(error) => {
+                        resources_summary_for_handler
+                            .set_text(&format!("Recursos: error\n{error}"));
                     }
                 },
                 Msg::Doctor(output) => {
@@ -164,10 +204,18 @@ fn build_ui(app: &adw::Application) {
     refresh.connect_clicked(move |_| {
         spawn_status(tx_refresh.clone());
         spawn_apps(tx_refresh.clone());
+        spawn_resources(tx_refresh.clone());
+    });
+
+    let tx_resources = tx.clone();
+    gtk::glib::timeout_add_local(Duration::from_secs(2), move || {
+        spawn_resources(tx_resources.clone());
+        gtk::glib::ControlFlow::Continue
     });
 
     spawn_status(tx.clone());
     spawn_apps(tx.clone());
+    spawn_resources(tx.clone());
     spawn_doctor(tx.clone());
 }
 
@@ -283,6 +331,157 @@ fn build_apps(
     page.upcast()
 }
 
+fn build_resources(tx: &Sender<Msg>, list: &gtk::ListBox, summary: &gtk::Label) -> gtk::Widget {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    page.set_margin_top(18);
+    page.set_margin_bottom(18);
+    page.set_margin_start(18);
+    page.set_margin_end(18);
+
+    let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let title = gtk::Label::new(Some("Recursos"));
+    title.set_xalign(0.0);
+    title.add_css_class("title-1");
+    title.set_hexpand(true);
+    let refresh = gtk::Button::with_label("Actualizar");
+    toolbar.append(&title);
+    toolbar.append(&refresh);
+    page.append(&toolbar);
+
+    summary.add_css_class("dim-label");
+    page.append(summary);
+
+    let note = gtk::Label::new(Some(
+        "btop y el monitor muestran apkstartd, qemu y scrcpy por separado; esta vista agrupa el proyecto models-apk.",
+    ));
+    note.set_xalign(0.0);
+    note.set_wrap(true);
+    note.add_css_class("dim-label");
+    page.append(&note);
+
+    let scrolled = gtk::ScrolledWindow::new();
+    scrolled.set_vexpand(true);
+    scrolled.set_child(Some(list));
+    page.append(&scrolled);
+
+    let tx_refresh = tx.clone();
+    refresh.connect_clicked(move |_| spawn_resources(tx_refresh.clone()));
+    page.upcast()
+}
+
+fn fill_resources(list: &gtk::ListBox, summary: &gtk::Label, report: &ResourceReport) {
+    clear_list(list);
+    summary.set_text(&format!(
+        "Total models-apk: {:.1}% CPU medio · {:.1} MiB RAM · {} procesos",
+        report.total_cpu,
+        report.total_rss_kb as f64 / 1024.0,
+        report.processes.len()
+    ));
+
+    let header = gtk::Label::new(Some(&format!(
+        "{:<24} {:>7} {:>8} {:>10}",
+        "PROCESO", "PID", "CPU", "RAM"
+    )));
+    header.set_xalign(0.0);
+    header.add_css_class("monospace");
+    header.add_css_class("dim-label");
+    let header_row = gtk::ListBoxRow::new();
+    header_row.set_child(Some(&header));
+    header_row.set_activatable(false);
+    list.append(&header_row);
+
+    for process in &report.processes {
+        let row = gtk::ListBoxRow::new();
+        let label = gtk::Label::new(Some(&format!(
+            "{:<24} {:>7} {:>7.1}% {:>7.1} MB",
+            process.name,
+            process.pid,
+            process.cpu,
+            process.rss_kb as f64 / 1024.0
+        )));
+        label.set_xalign(0.0);
+        label.add_css_class("monospace");
+        label.set_margin_top(6);
+        label.set_margin_bottom(6);
+        label.set_margin_start(10);
+        label.set_margin_end(10);
+        row.set_child(Some(&label));
+        list.append(&row);
+    }
+}
+
+fn spawn_resources(tx: Sender<Msg>) {
+    thread::spawn(move || {
+        let result = resource_report();
+        let _ = tx.send(Msg::Resources(result));
+    });
+}
+
+fn resource_report() -> Result<ResourceReport, String> {
+    let output = Command::new("ps")
+        .args(["-eo", "pid=,comm=,rss=,pcpu=,args=", "--no-headers"])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+
+    let mut processes = Vec::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let mut fields = line.split_whitespace();
+        let Some(pid) = fields.next().and_then(|value| value.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Some(comm) = fields.next() else {
+            continue;
+        };
+        let Some(rss_kb) = fields.next().and_then(|value| value.parse::<u64>().ok()) else {
+            continue;
+        };
+        let Some(cpu) = fields.next().and_then(|value| value.parse::<f32>().ok()) else {
+            continue;
+        };
+        let args = fields.collect::<Vec<_>>().join(" ");
+        if !is_project_process(&args) {
+            continue;
+        }
+        let name = if args.contains("qemu-system-x86_64-headless") {
+            "Emulador Android"
+        } else if args.contains("scrcpy") {
+            "scrcpy (ventana)"
+        } else if args.contains("apkstartd") {
+            "apkstartd (daemon)"
+        } else if args.contains("apkstart-settings") {
+            "UI ajustes"
+        } else {
+            "ADB del proyecto"
+        };
+        processes.push(ResourceProcess {
+            pid,
+            name: name.to_string(),
+            cpu,
+            rss_kb,
+        });
+        let _ = comm;
+    }
+    processes.sort_by(|left, right| left.name.cmp(&right.name));
+    let total_cpu = processes.iter().map(|process| process.cpu).sum();
+    let total_rss_kb = processes.iter().map(|process| process.rss_kb).sum();
+    Ok(ResourceReport {
+        processes,
+        total_cpu,
+        total_rss_kb,
+    })
+}
+
+fn is_project_process(args: &str) -> bool {
+    args.contains("apkstartd")
+        || (args.contains("qemu-system-x86_64-headless") && args.contains("-avd apkstart"))
+        || (args.contains("scrcpy") && args.contains("emulator-5556"))
+        || args.contains("apkstart-settings")
+        || (args.contains("adb") && args.contains("5038"))
+}
+
 fn build_diagnostics(tx: &Sender<Msg>, view: &gtk::TextView) -> gtk::Widget {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 12);
     page.set_margin_top(18);
@@ -302,16 +501,109 @@ fn build_diagnostics(tx: &Sender<Msg>, view: &gtk::TextView) -> gtk::Widget {
     toolbar.append(&export);
     page.append(&toolbar);
 
-    let scrolled = gtk::ScrolledWindow::new();
-    scrolled.set_vexpand(true);
-    scrolled.set_child(Some(view));
-    page.append(&scrolled);
+    let doctor_page = gtk::ScrolledWindow::new();
+    doctor_page.set_vexpand(true);
+    doctor_page.set_child(Some(view));
+
+    let logs_view = gtk::TextView::new();
+    logs_view.set_editable(false);
+    logs_view.set_monospace(true);
+    logs_view.set_wrap_mode(gtk::WrapMode::WordChar);
+    logs_view.buffer().set_text(&read_logs());
+    let logs_page = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    let logs_note = gtk::Label::new(Some(
+        "En vivo cada 2 s: daemon, emulador y última sesión. Para una foto exacta usa Doctor.",
+    ));
+    logs_note.set_xalign(0.0);
+    logs_note.add_css_class("dim-label");
+    logs_page.append(&logs_note);
+    let logs_scrolled = gtk::ScrolledWindow::new();
+    logs_scrolled.set_vexpand(true);
+    logs_scrolled.set_child(Some(&logs_view));
+    logs_page.append(&logs_scrolled);
+
+    let notebook = gtk::Notebook::new();
+    notebook.set_vexpand(true);
+    notebook.append_page(&doctor_page, Some(&gtk::Label::new(Some("Doctor"))));
+    notebook.append_page(&logs_page, Some(&gtk::Label::new(Some("Logs en vivo"))));
+    page.append(&notebook);
+
+    let logs_buffer = logs_view.buffer();
+    gtk::glib::timeout_add_local(Duration::from_secs(2), move || {
+        let text = read_logs();
+        let current = logs_buffer.text(&logs_buffer.start_iter(), &logs_buffer.end_iter(), true);
+        if current.as_str() != text {
+            logs_buffer.set_text(&text);
+        }
+        gtk::glib::ControlFlow::Continue
+    });
 
     let tx_run = tx.clone();
     run.connect_clicked(move |_| spawn_doctor(tx_run.clone()));
     let tx_export = tx.clone();
     export.connect_clicked(move |_| spawn_action(tx_export.clone(), &["export-log"]));
     page.upcast()
+}
+
+fn read_logs() -> String {
+    let mut output = String::from("=== apkstartd ===\n");
+    if let Ok(logs) = Command::new("journalctl")
+        .args(["--user", "-u", "apkstartd", "-n", "80", "--no-pager"])
+        .output()
+    {
+        output.push_str(&String::from_utf8_lossy(&logs.stdout));
+    }
+
+    output.push_str("\n=== emulador ===\n");
+    output.push_str(&tail_file(&state_dir().join("emulator.log"), 80));
+
+    if let Ok(entries) = fs::read_dir(state_dir().join("sessions")) {
+        let mut latest: Option<(std::time::SystemTime, PathBuf)> = None;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            let Ok(modified) = metadata.modified() else {
+                continue;
+            };
+            if latest
+                .as_ref()
+                .map(|(time, _)| modified > *time)
+                .unwrap_or(true)
+            {
+                latest = Some((modified, path));
+            }
+        }
+        if let Some((_, path)) = latest {
+            output.push_str(&format!("\n=== última sesión: {} ===\n", path.display()));
+            output.push_str(&tail_file(&path, 80));
+        }
+    }
+    output
+}
+
+fn state_dir() -> PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".local/state")
+        })
+        .join("apkstart")
+}
+
+fn tail_file(path: &Path, lines: usize) -> String {
+    let Ok(text) = fs::read_to_string(path) else {
+        return format!("(no existe {})\n", path.display());
+    };
+    let all = text.lines().collect::<Vec<_>>();
+    let start = all.len().saturating_sub(lines);
+    all[start..].join("\n")
 }
 
 fn build_about() -> gtk::Widget {

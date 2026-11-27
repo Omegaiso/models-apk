@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 apkstart-core.workspace = true
+dirs.workspace = true
 gtk4.workspace = true
 libadwaita.workspace = true
 serde_json.workspace = true

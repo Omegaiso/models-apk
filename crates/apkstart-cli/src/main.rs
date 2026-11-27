@@ -368,6 +368,10 @@ fn install_daemon_service(executable: &Path) -> Result<bool> {
          [Service]\n\
          Type=dbus\n\
          BusName=org.apkstart.Manager1\n\
+         Slice=models-apk.slice\n\
+         CPUAccounting=yes\n\
+         MemoryAccounting=yes\n\
+         IOAccounting=yes\n\
          ExecStart={exec}\n\
          Restart=on-failure\n\
          RestartSec=3\n\
