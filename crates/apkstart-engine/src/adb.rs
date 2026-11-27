@@ -193,6 +193,38 @@ impl Adb {
         Ok(())
     }
 
+    /// Devuelve la ruta del APK base instalado para un package.
+    pub async fn package_apk_path(&self, package: &str) -> Result<String> {
+        let output = self.shell(&["pm", "path", package]).await?;
+        let paths = output
+            .lines()
+            .filter_map(|line| line.strip_prefix("package:"))
+            .collect::<Vec<_>>();
+        paths
+            .iter()
+            .find(|path| path.ends_with("/base.apk"))
+            .or_else(|| paths.first())
+            .map(|path| (*path).to_string())
+            .ok_or_else(|| Error::Adb(format!("no se encontró el APK de {package}")))
+    }
+
+    pub async fn pull(&self, remote: &str, local: &Path) -> Result<()> {
+        if let Some(parent) = local.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        let local = local.to_string_lossy().into_owned();
+        let output = self.run(&["pull", remote, &local]).await?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(Error::Adb(format!(
+                "adb pull falló: {}{}",
+                String::from_utf8_lossy(&output.stdout).trim(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            )))
+        }
+    }
+
     pub async fn emu_kill(&self) -> Result<()> {
         let output = self.run(&["emu", "kill"]).await?;
         if output.status.success() {

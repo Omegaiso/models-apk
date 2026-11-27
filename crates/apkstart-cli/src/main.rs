@@ -1,8 +1,10 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::{Command as ProcessCommand, Stdio};
 
 use anyhow::{Context, Result, bail};
-use apkstart_apk::{read_apk, read_resource};
+use apkstart_apk::{ApkInfo, read_apk, read_icon};
 use apkstart_core::{App, Config, Db, DesktopPaths, now_unix};
 use apkstart_engine::{Adb, AndroidEmulator, Check, ScrcpyOptions, ScrcpySession};
 use clap::{Parser, Subcommand};
@@ -24,6 +26,20 @@ struct Cli {
 enum Command {
     /// Comprueba KVM, SDK, emulador, scrcpy y la sesión de escritorio.
     Doctor,
+    /// Registra la integración con el escritorio y la asociación de APK.
+    Setup,
+    /// Sincroniza las apps instaladas dentro de Android con el escritorio Linux.
+    Sync {
+        /// Vuelve a registrar también las apps ya conocidas.
+        #[arg(long)]
+        refresh: bool,
+        /// No imprime el resultado; para el timer de sincronización.
+        #[arg(long)]
+        quiet: bool,
+        /// Sale sin error si el runtime está apagado.
+        #[arg(long)]
+        if_running: bool,
+    },
     /// Gestiona el runtime Android headless.
     Runtime {
         #[command(subcommand)]
@@ -33,6 +49,9 @@ enum Command {
     Install {
         /// Ruta al archivo .apk.
         apk: PathBuf,
+        /// Abre la app en su ventana al terminar la instalación.
+        #[arg(long)]
+        launch: bool,
     },
     /// Lanza una app instalada en su propia ventana.
     Launch {
@@ -92,8 +111,14 @@ async fn run(cli: Cli) -> Result<()> {
     let config = Config::load().context("cargando configuración")?;
     match cli.command {
         Command::Doctor => doctor(&config).await,
+        Command::Setup => setup(&config).await,
+        Command::Sync {
+            refresh,
+            quiet,
+            if_running,
+        } => sync(&config, refresh, quiet, if_running).await,
         Command::Runtime { command } => runtime(&config, command).await,
-        Command::Install { apk } => install(&config, &apk).await,
+        Command::Install { apk, launch } => install(&config, &apk, launch).await,
         Command::Launch {
             package,
             title,
@@ -128,6 +153,127 @@ async fn doctor(config: &Config) -> Result<()> {
         std::process::exit(1);
     }
     Ok(())
+}
+
+async fn setup(config: &Config) -> Result<()> {
+    let executable = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("apkstart"));
+    let paths = DesktopPaths::default();
+    let handler = apkstart_core::desktop::install_mime_handler(&executable, &paths)
+        .context("creando el handler de APK")?;
+    let registered = apkstart_core::desktop::register_mime_default();
+    apkstart_core::desktop::refresh_caches(&paths);
+
+    println!("Integración de escritorio instalada");
+    println!("  handler: {}", handler.display());
+    println!("  MIME:    {}", apkstart_core::desktop::APK_MIME);
+    if registered {
+        println!("  doble clic en un APK: listo");
+    } else {
+        println!("  aviso: no se pudo fijar el handler con xdg-mime; revisa xdg-utils");
+    }
+
+    match install_sync_timer(&executable) {
+        Ok(true) => println!("  sincronización automática: timer de 15 s activo"),
+        _ => println!("  aviso: no se pudo activar el timer de sincronización de systemd --user"),
+    }
+
+    let emulator = AndroidEmulator::new(config.clone());
+    if emulator.is_online().await {
+        match sync_apps(config, false, false).await {
+            Ok(report) if report.added > 0 || report.removed > 0 => println!(
+                "Apps añadidas: {}; eliminadas: {}",
+                report.added, report.removed
+            ),
+            Ok(_) => println!("No hay apps Android nuevas que registrar."),
+            Err(error) => eprintln!("aviso: no se pudieron sincronizar las apps: {error:#}"),
+        }
+    } else {
+        println!("Runtime apagado; ejecuta `apkstart sync` con Android encendido.");
+    }
+
+    println!();
+    println!("Las apps instaladas aparecen en el menú y en el escritorio con su icono.");
+    println!("Para ejecutar APKs como binarios (./app.apk), desde el repo:");
+    println!(
+        "  sudo packaging/binfmt/install.sh {}",
+        executable.display()
+    );
+    println!("  chmod +x app.apk && ./app.apk");
+    Ok(())
+}
+
+fn icon_for_apk(apk: &Path, info: &ApkInfo) -> Option<Vec<u8>> {
+    match read_icon(apk, info) {
+        Ok(Some(icon)) => return Some(icon),
+        Ok(None) => {}
+        Err(error) => eprintln!("aviso: no se pudo extraer el icono ({error})"),
+    }
+    match apkstart_core::desktop::fallback_icon(&info.package, &info.label) {
+        Ok(icon) => Some(icon),
+        Err(error) => {
+            eprintln!("aviso: no se pudo generar el icono de respaldo ({error})");
+            None
+        }
+    }
+}
+
+fn install_sync_timer(executable: &Path) -> Result<bool> {
+    let Some(config_dir) = dirs::config_dir() else {
+        return Ok(false);
+    };
+    let unit_dir = config_dir.join("systemd/user");
+    fs::create_dir_all(&unit_dir)?;
+    let exec = systemd_quote(&executable.to_string_lossy());
+    let service = format!(
+        "[Unit]\n\
+         Description=Sincronizar apps Android instaladas (models-apk)\n\
+         \n\
+         [Service]\n\
+         Type=oneshot\n\
+         ExecStart={exec} sync --if-running --quiet\n"
+    );
+    let timer = "[Unit]\n\
+                 Description=Sincronizar apps Android instaladas (models-apk)\n\
+                 \n\
+                 [Timer]\n\
+                 OnBootSec=20s\n\
+                 OnUnitActiveSec=15s\n\
+                 AccuracySec=2s\n\
+                 Unit=apkstart-sync.service\n\
+                 \n\
+                 [Install]\n\
+                 WantedBy=timers.target\n";
+    fs::write(unit_dir.join("apkstart-sync.service"), service)?;
+    fs::write(unit_dir.join("apkstart-sync.timer"), timer)?;
+
+    let reload = ProcessCommand::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !reload {
+        return Ok(false);
+    }
+    let enabled = ProcessCommand::new("systemctl")
+        .args(["--user", "enable", "--now", "apkstart-sync.timer"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    Ok(enabled)
+}
+
+fn systemd_quote(value: &str) -> String {
+    format!(
+        "\"{}\"",
+        value
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('%', "%%")
+    )
 }
 
 fn print_check(check: &Check) {
@@ -170,6 +316,16 @@ async fn runtime(config: &Config, command: RuntimeCommand) -> Result<()> {
             emulator.start().await.context("arrancando el runtime")?;
             println!("Runtime listo: {}", config.serial());
             println!("Log del emulador: {}", config.emulator_log_path().display());
+            match sync_apps(config, false, false).await {
+                Ok(report) if report.added > 0 || report.removed > 0 => {
+                    println!(
+                        "Apps actualizadas en el escritorio: +{} / -{}",
+                        report.added, report.removed
+                    );
+                }
+                Ok(_) => {}
+                Err(error) => eprintln!("aviso: no se pudieron sincronizar las apps: {error:#}"),
+            }
         }
         RuntimeCommand::Stop => {
             emulator.stop().await.context("deteniendo el runtime")?;
@@ -179,7 +335,7 @@ async fn runtime(config: &Config, command: RuntimeCommand) -> Result<()> {
     Ok(())
 }
 
-async fn install(config: &Config, apk: &Path) -> Result<()> {
+async fn install(config: &Config, apk: &Path, launch_after: bool) -> Result<()> {
     if !apk.is_file() {
         bail!("no existe el APK: {}", apk.display());
     }
@@ -207,7 +363,21 @@ async fn install(config: &Config, apk: &Path) -> Result<()> {
         .context("preparando el runtime Android")?;
     adb.install(apk).await.context("instalando el APK")?;
 
+    let app = register_app_from_apk(config, apk, &info, false)?;
+    apkstart_core::desktop::refresh_caches(&DesktopPaths::default());
+
+    println!("Instalado: {}", app.package);
+    println!("Lánzalo con: apkstart launch {}", app.package);
+
+    if launch_after {
+        launch(config, app.package, Some(app.label), None, None).await?;
+    }
+    Ok(())
+}
+
+fn register_app_from_apk(config: &Config, apk: &Path, info: &ApkInfo, quiet: bool) -> Result<App> {
     let db = Db::open(&config.db_path()).context("abriendo la base de datos")?;
+    let previous = db.get_app(&info.package).ok().flatten();
     let mut app = App {
         package: info.package.clone(),
         label: info.label.clone(),
@@ -220,27 +390,23 @@ async fn install(config: &Config, apk: &Path) -> Result<()> {
         target_sdk: info.target_sdk,
         abis: info.abis.clone(),
         orientation: None,
-        installed_at: now_unix(),
-        last_launched_at: None,
+        installed_at: previous
+            .as_ref()
+            .map(|app| app.installed_at)
+            .unwrap_or_else(now_unix),
+        last_launched_at: previous.as_ref().and_then(|app| app.last_launched_at),
         enabled: true,
     };
 
-    let icon =
-        info.icon_resource
-            .as_deref()
-            .and_then(|resource| match read_resource(apk, resource) {
-                Ok(bytes) => Some(bytes),
-                Err(error) => {
-                    eprintln!("aviso: no se pudo extraer el icono ({error})");
-                    None
-                }
-            });
+    let icon = icon_for_apk(apk, info);
     let executable = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("apkstart"));
     let paths = DesktopPaths::default();
     match apkstart_core::desktop::install(&app, icon.as_deref(), &executable, &paths) {
         Ok(entry) => {
-            app.icon_path = entry.icon_file.clone();
-            println!("Acceso de escritorio: {}", entry.desktop_file.display());
+            app.icon_path = entry.icon_file;
+            if !quiet {
+                println!("Acceso de escritorio: {}", entry.desktop_file.display());
+            }
         }
         Err(error) => {
             eprintln!("aviso: no se pudo crear la entrada de escritorio: {error}");
@@ -248,10 +414,116 @@ async fn install(config: &Config, apk: &Path) -> Result<()> {
     }
 
     db.upsert_app(&app).context("registrando la app")?;
+    Ok(app)
+}
 
-    println!("Instalado: {}", info.package);
-    println!("Lánzalo con: apkstart launch {}", info.package);
+#[derive(Debug, Default)]
+struct SyncReport {
+    added: usize,
+    removed: usize,
+}
+
+async fn sync(config: &Config, refresh: bool, quiet: bool, if_running: bool) -> Result<()> {
+    let emulator = AndroidEmulator::new(config.clone());
+    if !emulator.is_online().await {
+        if if_running {
+            return Ok(());
+        }
+        bail!("runtime detenido; arranca con `apkstart runtime start`");
+    }
+    let report = sync_apps(config, refresh, quiet).await?;
+    if !quiet {
+        println!(
+            "Apps añadidas: {}; eliminadas: {}",
+            report.added, report.removed
+        );
+    }
     Ok(())
+}
+
+async fn sync_apps(config: &Config, refresh: bool, quiet: bool) -> Result<SyncReport> {
+    let adb = Adb::new(config);
+    let packages = adb
+        .list_packages(true)
+        .await
+        .context("listando apps de Android")?;
+    let installed = packages.iter().cloned().collect::<HashSet<_>>();
+    let db = Db::open(&config.db_path()).context("abriendo la base de datos")?;
+    let known_apps = db.list_apps()?;
+    if packages.is_empty() && !known_apps.is_empty() {
+        let total = adb
+            .shell(&["pm", "list", "packages"])
+            .await
+            .unwrap_or_default();
+        if total.is_empty() {
+            eprintln!("aviso: Android no reportó paquetes; no se borran entradas");
+            return Ok(SyncReport::default());
+        }
+    }
+    let known = known_apps
+        .iter()
+        .map(|app| app.package.clone())
+        .collect::<HashSet<_>>();
+    let mut report = SyncReport::default();
+
+    for package in packages {
+        if !refresh && known.contains(&package) {
+            continue;
+        }
+        let remote = match adb.package_apk_path(&package).await {
+            Ok(path) => path,
+            Err(error) => {
+                eprintln!("aviso: no se pudo localizar el APK de {package}: {error}");
+                continue;
+            }
+        };
+        let local = config.data_dir.join("cache").join(format!("{package}.apk"));
+        if let Err(error) = adb.pull(&remote, &local).await {
+            eprintln!("aviso: no se pudo extraer {package}: {error}");
+            continue;
+        }
+        let info = match read_apk(&local) {
+            Ok(info) => info,
+            Err(error) => {
+                eprintln!("aviso: APK inválido para {package}: {error}");
+                continue;
+            }
+        };
+        match register_app_from_apk(config, &local, &info, quiet) {
+            Ok(app) => {
+                if !quiet {
+                    println!("Registrada: {} ({})", app.label, app.package);
+                }
+                report.added += 1;
+            }
+            Err(error) => eprintln!("aviso: no se pudo registrar {package}: {error:#}"),
+        }
+    }
+
+    for app in known_apps {
+        if installed.contains(&app.package) {
+            continue;
+        }
+        let paths = DesktopPaths::default();
+        if let Err(error) = apkstart_core::desktop::remove(&app.package, &paths) {
+            eprintln!(
+                "aviso: no se pudo borrar la entrada de {}: {error}",
+                app.package
+            );
+            continue;
+        }
+        db.delete_app(&app.package)
+            .context("borrando una app desinstalada")?;
+        if !quiet {
+            println!("Eliminada del escritorio: {} ({})", app.label, app.package);
+        }
+        report.removed += 1;
+    }
+
+    if report.added > 0 || report.removed > 0 {
+        apkstart_core::desktop::refresh_caches(&DesktopPaths::default());
+    }
+    Ok(report)
 }
 
 async fn launch(
@@ -372,8 +644,10 @@ async fn uninstall(config: &Config, package: &str, keep_data: bool) -> Result<()
             db.delete_app(package)
                 .context("borrando de la base de datos")?;
         }
-        apkstart_core::desktop::remove(package, &DesktopPaths::default())
+        let paths = DesktopPaths::default();
+        apkstart_core::desktop::remove(package, &paths)
             .context("borrando la entrada de escritorio")?;
+        apkstart_core::desktop::refresh_caches(&paths);
     }
     println!("Desinstalado: {package}");
     Ok(())
@@ -483,6 +757,24 @@ mod tests {
     fn cli_parses_doctor() {
         let cli = Cli::try_parse_from(["apkstart", "doctor"]).unwrap();
         assert!(matches!(cli.command, Command::Doctor));
+    }
+
+    #[test]
+    fn cli_parses_setup() {
+        let cli = Cli::try_parse_from(["apkstart", "setup"]).unwrap();
+        assert!(matches!(cli.command, Command::Setup));
+    }
+
+    #[test]
+    fn cli_parses_install_launch() {
+        let cli = Cli::try_parse_from(["apkstart", "install", "--launch", "/tmp/app.apk"]).unwrap();
+        match cli.command {
+            Command::Install { apk, launch } => {
+                assert_eq!(apk, PathBuf::from("/tmp/app.apk"));
+                assert!(launch);
+            }
+            _ => panic!("comando inesperado"),
+        }
     }
 
     #[test]

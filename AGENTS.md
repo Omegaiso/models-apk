@@ -7,7 +7,7 @@
 - `docs/plan-inicial/` describe el diseño completo (daemon, GTK4, viewer propio, QEMU). **Aún no existen** `apkstartd`, D-Bus, `apkstart-settings`, `apkstart-viewer` ni `apkstart-integration`. No escribas UI o servicios asumiendo que están.
 - El flujo actual es **CLI → `AndroidEmulator`/ADB/scrcpy directamente**. No hay daemon ni systemd.
 - Motor fijado para el MVP: **Android Emulator oficial + API 34 x86_64 `google_apis`**. Prioridad: estabilidad y usabilidad. No migrar a QEMU puro/Waydroid ni introducir Electron/Node/Java en el producto host (el SDK/`sdkmanager` puede usar Java como herramienta).
-- La bitácora vigente es **`docs/bitacora/bitacora.md`** (el README todavía enlaza `docs/bitacora.md`). Es append-only: al cerrar un bloque añade una entrada; no reescribas el historial.
+- La bitácora vigente es **`docs/bitacora/bitacora.md`**. Es append-only: al cerrar un bloque añade una entrada; no reescribas el historial.
 
 ## Comandos
 
@@ -18,6 +18,8 @@ cargo test --workspace
 
 # El paquete es apkstart-cli; el binario es apkstart
 cargo run -p apkstart-cli -- doctor
+cargo run -p apkstart-cli -- setup
+cargo run -p apkstart-cli -- sync
 target/debug/apkstart doctor
 
 # Un test / un paquete
@@ -32,12 +34,12 @@ No hay CI ni task runner: esas tres verificaciones (`fmt`, `clippy`, `test`) son
 
 ## Prueba funcional (manual, con efectos reales)
 
-Requiere KVM, SDK, AVD `apkstart` y scrcpy. `install` arranca el emulador si hace falta, escribe en `~/.local/share`, crea `.desktop`/icono y toca SQLite; no lo ejecutes como parte de tests.
+Requiere KVM, SDK, AVD `apkstart` y scrcpy. `install` arranca el emulador si hace falta, escribe en `~/.local/share`, crea `.desktop`/icono y toca SQLite; `setup` además escribe en `~/.local/share/applications` y `~/.config/systemd/user`. No los ejecutes como parte de tests.
 
 ```bash
 target/debug/apkstart doctor
 target/debug/apkstart runtime start
-target/debug/apkstart install /ruta/app.apk
+target/debug/apkstart install --launch /ruta/app.apk
 target/debug/apkstart launch <package>
 target/debug/apkstart runtime stop
 ```
@@ -53,11 +55,15 @@ target/debug/apkstart runtime stop
 - **Identidad de ventana:** `apkstart-engine` exporta `SDL_APP_ID=io.github.apkstart.<pkg>` a scrcpy. No lo quites: sin eso todas las apps usan la clase `scrcpy` y pierden icono/agrupación. El `.desktop` y `StartupWMClass` usan el mismo id.
 - **Configuración:** `~/.config/apkstart/config.toml` (opcional) + variables `APKSTART_*`; `APKSTART_CONFIG` cambia el archivo. SDK por defecto `~/Android/Sdk`; scrcpy se autodetecta en `PATH` o `~/.local/opt/scrcpy`.
 - **Datos:** SQLite en `~/.local/share/apkstart/apkstart.db`, esquema con `PRAGMA user_version` (hoy 1). No cambies columnas sin migración.
-- **APK:** el parser es `apk-info` (Apache-2.0), no un AXML propio. Entradas: `read_apk` y `read_resource`.
+- **APK:** el parser es `apk-info` (Apache-2.0), no un AXML propio. Entradas: `read_apk`, `read_icon` y `read_resource`.
 - **Activity:** `apk-info` devuelve la primera activity de launcher; en F-Droid sale `IconActivity`. `scrcpy --start-app` abre bien, pero no asumas que `App.activity` es la principal.
-- **Iconos:** se guardan siempre en `hicolor/256x256` aunque el PNG sea 48×48; adaptive icons pendiente.
+- **Iconos:** se guardan en la carpeta hicolor según el tamaño del PNG (48×48 → `hicolor/48x48`); adaptive icons y elegir la máxima densidad siguen pendientes.
+- **Integración APK:** `apkstart setup` crea `~/.local/share/applications/io.github.apkstart.install.desktop`, fija el handler MIME con `xdg-mime` y activa un timer de `systemd --user` cada 15 s (`apkstart-sync.timer`). El doble clic ejecuta `install --launch %f` con `Terminal=true`.
+- **Sincronización:** el timer (o `apkstart sync`) lista los paquetes Android `-3`, extrae el APK base a `~/.local/share/apkstart/cache`, crea `.desktop`/icono y borra entradas de apps desinstaladas. `--refresh` vuelve a registrar todas; `--if-running --quiet` es para el timer. Es la forma en que aparecen en el escritorio las apps instaladas desde F-Droid.
+- **`./app.apk`:** requiere `binfmt_misc` y root; usar `packaging/binfmt/install.sh <ruta-a-apkstart>` una vez. No lo ejecutes en tests ni asumas que está registrado. El wrapper llama a `apkstart install --launch` como el usuario, no como root.
+- **Iconos de respaldo:** si el APK solo trae un adaptive icon vectorial (o no trae bitmap), se genera un PNG 256×256 con la inicial y un color estable. No es el icono adaptativo real.
 - **RAM:** en el host de desarrollo (14 GB) el guest va a 3 GB. No subir sin medir; el emulador compite con compilaciones.
-- **Licencias:** no commitear APK (`*.apk` está ignorado), imágenes de Android, emulador ni binarios de Google. El usuario instala y acepta el SDK.
+- **Licencias:** el código propio es **MIT** (`LICENSE`). No commitear APK (`*.apk` está ignorado), imágenes de Android, emulador ni binarios de Google. El usuario instala y acepta el SDK.
 
 ## Mapa de código
 

@@ -4,7 +4,7 @@ Gestor nativo de aplicaciones Android para Linux: Android completo sobre Android
 
 > Proyecto: **models-apk**. Los identificadores internos (`apkstart-*`, binario `apkstart`, rutas `~/.config/apkstart`) se mantienen por compatibilidad hasta un rename controlado.
 
-El diseño y las decisiones están en [`docs/plan-inicial/`](docs/plan-inicial/). El avance real se registra en [`docs/bitacora.md`](docs/bitacora.md).
+El diseño y las decisiones están en [`docs/plan-inicial/`](docs/plan-inicial/). El avance real se registra en [`docs/bitacora/bitacora.md`](docs/bitacora/bitacora.md).
 
 ## Estado
 
@@ -64,13 +64,36 @@ cargo run -p apkstart-cli -- doctor
 cargo run -p apkstart-cli -- doctor
 cargo run -p apkstart-cli -- runtime status
 
+# Registrar la integración con el escritorio (una vez)
+cargo run -p apkstart-cli -- setup
+
+# Sincronizar apps instaladas dentro de Android (F-Droid, etc.)
+cargo run -p apkstart-cli -- sync
+
 # Arrancar Android headless
 cargo run -p apkstart-cli -- runtime start
 
 # Instalar un APK y lanzarlo en su propia ventana
 cargo run -p apkstart-cli -- install /ruta/app.apk
+cargo run -p apkstart-cli -- install --launch /ruta/app.apk
 cargo run -p apkstart-cli -- launch com.example.app
 ```
+
+## Escritorio, menú y doble clic
+
+- `install` crea una entrada `.desktop` y un icono en `~/.local/share`; la app aparece en el menú y en el escritorio como una app más.
+- `setup` registra el handler MIME `application/vnd.android.package-archive`: al hacer doble clic en un APK descargado desde el navegador se instala y se abre. En el MVP se abre una terminal para ver el progreso.
+- `setup` también activa un timer de `systemd --user` cada 15 s que sincroniza las apps instaladas **dentro** de Android (por ejemplo desde F-Droid) con el escritorio Linux. Si el timer no está disponible, ejecuta `apkstart sync` o `apkstart sync --refresh`.
+- Las apps con icono vectorial/adaptive sin bitmap usan un icono de respaldo con su inicial; el icono adaptativo completo queda pendiente.
+- Para ejecutar un APK como un binario (`./app.apk`), Linux necesita `binfmt_misc` y permisos de ejecución. Una vez:
+
+```bash
+sudo packaging/binfmt/install.sh /ruta/a/target/debug/apkstart
+chmod +x app.apk
+./app.apk
+```
+
+El handler binfmt llama a `apkstart install --launch`; el APK se ejecuta con los permisos del usuario que lo lanza, no como root.
 
 La configuración se lee de `~/.config/apkstart/config.toml` y se puede sobreescribir con variables `APKSTART_*`:
 
@@ -101,4 +124,4 @@ docs/
 
 ## Licencias
 
-El código de ApkStart es MIT/Apache-2.0. El Android Emulator, las imágenes de Google y la traducción ARM son propietarios: no se redistribuyen. El usuario instala el SDK y acepta sus licencias. `apk-info` es Apache-2.0; `scrcpy` es Apache-2.0; QEMU es GPL-2.0.
+El código de models-apk es **MIT** (ver [`LICENSE`](LICENSE)). El Android Emulator, las imágenes de Google y la traducción ARM son propietarios: no se redistribuyen. El usuario instala el SDK y acepta sus licencias. `apk-info` es Apache-2.0; `scrcpy` es Apache-2.0; QEMU es GPL-2.0.

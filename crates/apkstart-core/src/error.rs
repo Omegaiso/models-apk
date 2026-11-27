@@ -15,6 +15,8 @@ pub enum Error {
     InvalidState(String),
     #[error("ruta no encontrada: {}", .0.display())]
     NotFound(PathBuf),
+    #[error("PNG: {0}")]
+    Png(String),
     #[error("{0}")]
     Other(String),
 }

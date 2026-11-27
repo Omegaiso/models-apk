@@ -52,6 +52,54 @@ pub fn read_resource(path: &Path, resource: &str) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
+/// Extrae el icono de lanzador, resolviendo también adaptive icons XML.
+pub fn read_icon(path: &Path, info: &ApkInfo) -> Result<Option<Vec<u8>>, Error> {
+    let Some(resource) = info.icon_resource.as_deref() else {
+        return Ok(None);
+    };
+    let apk = Apk::new(path).map_err(|error| Error::InvalidApk(error.to_string()))?;
+    let (bytes, _) = apk
+        .read(resource)
+        .map_err(|error| Error::InvalidApk(format!("no se pudo leer {resource}: {error}")))?;
+    if is_image(&bytes) {
+        return Ok(Some(bytes));
+    }
+
+    if !resource.ends_with(".xml") {
+        return Ok(None);
+    }
+    let (arsc_bytes, _) = apk
+        .read("resources.arsc")
+        .map_err(|error| Error::InvalidApk(format!("no se pudo leer resources.arsc: {error}")))?;
+    let mut arsc_slice = arsc_bytes.as_slice();
+    let arsc = apk_info::ARSC::new(&mut arsc_slice)
+        .map_err(|error| Error::InvalidApk(format!("resources.arsc inválido: {error:?}")))?;
+    let mut xml_slice = bytes.as_slice();
+    let axml = apk_info::AXML::new(&mut xml_slice, Some(&arsc))
+        .map_err(|error| Error::InvalidApk(format!("adaptive icon inválido: {error:?}")))?;
+
+    for tag in ["foreground", "background"] {
+        let Some(resolved) = axml.get_attribute_value(tag, "drawable", Some(&arsc)) else {
+            continue;
+        };
+        if resolved.starts_with('#') || resolved.starts_with('@') {
+            continue;
+        }
+        if let Ok((candidate, _)) = apk.read(&resolved)
+            && is_image(&candidate)
+        {
+            return Ok(Some(candidate));
+        }
+    }
+    Ok(None)
+}
+
+fn is_image(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+        || (bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(&b"WEBP"[..]))
+        || bytes.starts_with(b"\xff\xd8\xff")
+}
+
 pub fn read_apk(path: &Path) -> Result<ApkInfo, Error> {
     let apk = Apk::new(path).map_err(|error| Error::InvalidApk(error.to_string()))?;
     let package = apk.get_package_name().ok_or(Error::MissingPackage)?;

@@ -15,6 +15,7 @@
 | 2026-11-27 | Prioridad: **estabilidad y usabilidad** del sistema completo | No se optimiza ni se migra de motor antes de cerrar la Fase 1. |
 | 2026-11-27 | SDK de Android en el home del usuario (`~/Android/Sdk`) | No requiere root ni contamina el sistema; el usuario controla licencias e imágenes. |
 | 2026-11-27 | Nombre del proyecto/repositorio: **models-apk** (`github.com/Omegaiso/models-apk`) | Nombre elegido por el usuario. Los identificadores internos `apkstart-*` se mantienen hasta un rename controlado. |
+| 2026-11-27 | Licencia del código propio: **MIT** (`LICENSE`) | Proyecto enteramente open source; licencia permisiva y simple. |
 
 ---
 
@@ -79,10 +80,13 @@
 
 ### Producto
 
-- [x] `.desktop` + icono por app (icono extraído del APK; resolución aún limitada)
+- [x] `.desktop` + icono por app (icono extraído del APK; fallback con inicial si es vectorial)
 - [x] Arranque headless sin escritorio Android
 - [x] Una ventana Wayland por app con título y `app_id` único (`SDL_APP_ID`)
-- [ ] Instalar APK desde el gestor de archivos (MIME); hoy solo CLI
+- [x] Instalar APK desde el gestor de archivos (MIME) y por doble clic (`apkstart setup`)
+- [x] Sincronización automática de apps instaladas dentro de Android (timer systemd --user de 15 s)
+- [x] Ejecución `./app.apk` vía `binfmt_misc` (script incluido; requiere root)
+- [x] Licencia MIT
 - [ ] Persistencia de tamaño/estado por app (tabla creada; falta conectar el viewer)
 - [ ] Audio, portapapeles y carpeta compartida integrados en la app (audio validado en el spike)
 - [ ] Red avanzada (proxy/DNS/port forwarding); el NAT básico lo pone el emulador
@@ -199,6 +203,33 @@
 - Se mantienen los identificadores internos `apkstart-*`, el binario `apkstart` y las rutas `~/.config/apkstart` / `~/.local/share/apkstart` hasta un rename coordinado que migre configuración, base de datos, `.desktop`, iconos y `app_id`.
 - Backup del primer slice de Fase 1, AGENTS.md, README y esta bitácora.
 
+### 2026-11-27 — Escritorio, sincronización y APK ejecutable
+
+**Problema detectado por el usuario:** instaló Lantern Sudoku desde F-Droid dentro del emulador y no aparecía fuera de F-Droid. El flujo anterior solo creaba `.desktop` cuando la instalación venía del CLI del host.
+
+**Implementado**
+- `apkstart setup`: registra el handler MIME `application/vnd.android.package-archive` con `xdg-mime`, crea `io.github.apkstart.install.desktop` (doble clic = `install --launch %f`) y activa un timer de `systemd --user` cada 15 s.
+- `apkstart sync`: lista los paquetes `-3` de Android, extrae el APK base a `~/.local/share/apkstart/cache`, parsea label/icono/activity y crea/actualiza `.desktop`, icono y SQLite. También elimina entradas de apps desinstaladas. `--refresh` re-registra todas; `--if-running --quiet` es el modo del timer.
+- `install --launch`: instala y abre la app; lo usa el handler de doble clic y el wrapper binfmt.
+- Icono de respaldo: si el APK solo tiene adaptive icon vectorial, se genera un PNG 256×256 con la inicial y un color estable.
+- Iconos hicolor por tamaño real (F-Droid 48×48; fallback 256×256) y refresco de `gtk-update-icon-cache`, `update-desktop-database` y `kbuildsycoca6`.
+- Licencia **MIT** (`LICENSE`, `Cargo.toml`, README).
+- `packaging/binfmt/install.sh` + `models-apk.conf`: registra `./app.apk` mediante `binfmt_misc`; requiere root y `chmod +x`. No se ejecutó en esta sesión.
+
+**Verificación**
+- Tras `setup`, Lantern Sudoku y F-Droid aparecen en `~/.local/share/applications` con icono; `xdg-mime query default application/vnd.android.package-archive` devuelve `io.github.apkstart.install.desktop`.
+- `apkstart-sync.timer` está activo; las ejecuciones del servicio terminan con status 0.
+- `apkstart sync` sin cambios devuelve 0/0; `sync --refresh` regenera entradas.
+- `launch io.github.ukpratik.lanternsudoku` abre la ventana con `resourceClass=io.github.apkstart.io.github.ukpratik.lanternsudoku`.
+- `desktop-file-validate` pasa en las entradas generadas.
+
+**Limitaciones**
+- El timer apunta al binario actual (`target/debug/apkstart` en desarrollo). Si se mueve o se ejecuta `cargo clean`, hay que repetir `apkstart setup`.
+- El icono real del adaptive icon vectorial no se renderiza; se usa el fallback con inicial.
+- `binfmt_misc` no se registró por requerir root; el script está listo y validado con `bash -n`.
+- El timer es un puente hasta `apkstartd`; no sustituye al daemon del plan.
+- El handler de doble clic usa `Terminal=true` para mostrar progreso; la UI GTK llegará después.
+
 ---
 
 ## 6. Bloqueos y riesgos activos
@@ -212,7 +243,9 @@
 | `sudo` con contraseña | Activo | Instalación local en `~/Android/Sdk`; paquetes del sistema cuando el usuario autorice |
 | Input sintético en KDE Wayland | Activo | Validar manualmente; para automatizar, usar XWayland o cargar `uinput` con permiso |
 | Identidad de ventana (`app_id`) única por app | Resuelto | `SDL_APP_ID=io.github.apkstart.<pkg>` + `.desktop` con el mismo nombre y `StartupWMClass` |
-| Icono de alta resolución / adaptive icons | Activo | Hoy se usa el recurso resuelto por `apk-info`; en F-Droid es 48×48. Falta elegir la máxima densidad o parsear el XML adaptativo |
+| Icono de alta resolución / adaptive icons | Activo | Se usa el bitmap si existe; si solo hay vectorial, fallback PNG con inicial. Falta renderizar el adaptive real y elegir la máxima densidad |
+| Timer de sincronización atado al binario | Conocido | `setup` genera el unit con la ruta actual; repetir `setup` si se mueve el binario |
+| `./app.apk` requiere root y binfmt | Conocido | Script `packaging/binfmt/install.sh`; no se registró en esta sesión |
 | Activity principal | Activo | `apk-info` devuelve la primera activity de launcher (`IconActivity` en F-Droid); `scrcpy --start-app` funciona, pero la metadata debe corregirse |
 | Daemon y D-Bus | Pendiente | El CLI llama al motor directamente; el siguiente bloque crea `apkstartd` y mueve la lógica allí |
 | Android 15+ endurece displays virtuales | Conocido | Fijar API 34; imagen Google APIs para permitir `adb root` |

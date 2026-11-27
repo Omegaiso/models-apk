@@ -17,6 +17,7 @@ apkstart-core.workspace = true
 apkstart-engine.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+dirs.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
