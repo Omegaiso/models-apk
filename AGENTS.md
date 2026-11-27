@@ -56,6 +56,7 @@ target/debug/apkstart runtime stop
 
 - **Persistencia:** el AVD no debe tener `disk.dataPartition.path=<temp>` y el arranque normal **no** debe usar `-no-snapshot-load`; debe usar quickboot. Si no, los APK desaparecen al reiniciar. `APKSTART_COLD_BOOT=1` es solo para recuperación. `doctor` avisa del AVD temporal.
 - **Identidad de ventana:** `apkstart-engine` exporta `SDL_APP_ID=io.github.apkstart.<pkg>` a scrcpy. No lo quites: sin eso todas las apps usan la clase `scrcpy` y pierden icono/agrupación. El `.desktop` y `StartupWMClass` usan el mismo id.
+- **Densidad de apps:** el display virtual es **552×984 a 215 dpi = 411 dp** (ancho de un Pixel 6), con `--flex-display`. Android dibuja por dp: si bajas el dpi, el texto crece y cabe menos; si lo subes, parece un teléfono pequeño. Al redimensionar la ventana el display cambia de píxeles con dpi fijo, así que el ancho lógico crece en vez de hacer zoom. No cambies `display_dpi` sin recalcular `dpi = round(ancho_px × 160 / ancho_dp)`.
 - **Configuración:** `~/.config/apkstart/config.toml` (opcional) + variables `APKSTART_*`; `APKSTART_CONFIG` cambia el archivo. SDK por defecto `~/Android/Sdk`; scrcpy se autodetecta en `PATH` o `~/.local/opt/scrcpy`.
 - **Datos:** SQLite en `~/.local/share/apkstart/apkstart.db`, esquema con `PRAGMA user_version` (hoy 2, categorías; el daemon añadirá 3). No cambies columnas sin migración.
 - **Categorías:** los `.desktop` usan `Categories=` freedesktop a partir de `android:appCategory` + heurísticas de package/label; un `sync --refresh` regenera entradas antiguas.

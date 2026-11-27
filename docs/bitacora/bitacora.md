@@ -379,6 +379,13 @@
 - CPU corregida a **instantánea** (deltas de `/proc/stat` y `/proc/<pid>/stat`) y total normalizado a hilos: `283%` = ~2,8 de 12 hilos, no un error.
 - GPU añadida como **global** desde sysfs AMD (`gpu_busy_percent`, `mem_info_vram_*`); el kernel no la atribuye por proceso. En este host se ven las dos GPUs (iGPU Rembrandt y RX 6400) con su VRAM.
 
+### 2026-11-27 — Densidad de apps y laboratorio de diseño
+
+- Las apps se veían como un teléfono pequeño: el display virtual era 900×1600/240 y `--flex-display` lo encogía a 552×984, es decir **368 dp**. Android dibuja por dp, así que el layout quedaba apretado y el texto pequeño.
+- Nuevo default: **552×984 a 215 dpi = 411 dp** (ancho de un Pixel 6). El dpi queda fijo y el display sigue el tamaño de la ventana; al agrandarla crece el ancho lógico en vez de hacer zoom. Verificado en `dumpsys display`: `552 x 984, density 215`.
+- Laboratorio visual en `docs/design/settings-ui/index.html`: 9 páginas (Inicio, Aplicaciones, Recursos, Red, Periféricos, Integración, Diagnóstico, Acerca y Resolución), **3 variantes por página** (A nativo refinado, B centro de control, C consola técnica), tema claro/oscuro, ruta por hash y calculadora de dp/dpi. Sirve para elegir la dirección antes de tocar GTK.
+- Recomendación de diseño: A como base, B para Inicio/Recursos/Diagnóstico y C solo como vista avanzada de logs.
+
 
 ---
 

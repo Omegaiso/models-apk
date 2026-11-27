@@ -85,9 +85,12 @@ impl Default for Config {
             adb_port: 5038,
             guest_ram_mb: 3072,
             guest_cores: 4,
-            display_width: 900,
-            display_height: 1600,
-            display_dpi: 240,
+            // 552 px a 215 dpi = 411 dp de ancho lógico (Pixel 6).
+            // Con --flex-display el display sigue el tamaño de la ventana:
+            // el dpi queda fijo y el ancho lógico crece al agrandarla.
+            display_width: 552,
+            display_height: 984,
+            display_dpi: 215,
             gpu_mode: "host".to_string(),
             data_dir,
             state_dir,
@@ -336,6 +339,6 @@ mod tests {
         assert_eq!(config.avd_name, "prueba");
         assert_eq!(config.emulator_port, 5556);
         assert_eq!(config.adb_port, 5038);
-        assert_eq!(config.display_dpi, 240);
+        assert_eq!(config.display_dpi, 215);
     }
 }
