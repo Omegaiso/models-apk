@@ -33,6 +33,9 @@ Pendiente: input/portapapeles manual, compositores Hyprland/GNOME, `FLAG_SECURE`
 - Inicio: estado del runtime, arrancar/detener, sincronizar.
 - Aplicaciones: lista con icono, abrir/cerrar e instalar APK.
 - Recursos: CPU instantánea/RAM agregadas de `apkstartd`, emulador, scrcpy, ADB y la UI, más GPU global vía sysfs. Un 283% de CPU significa ~2,8 hilos, no un fallo.
+- Red: NAT del host, proxy/DNS heredados y límites de LAN/mDNS.
+- Periféricos: estado de audio, portapapeles, cámara, micrófono, gamepad y USB.
+- Integración: MIME de APK, binfmt, daemon y timer; botones para reinstalar `setup` y sincronizar.
 - Diagnóstico: `doctor`, logs en vivo cada 2 s y exportación de logs.
 - Acerca de: versión y licencia.
 

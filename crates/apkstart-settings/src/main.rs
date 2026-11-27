@@ -24,8 +24,17 @@ enum Msg {
     Status(Result<RuntimeStatus, String>),
     Apps(Result<Vec<App>, String>),
     Resources(Result<ResourceReport, String>),
+    Integration(Result<IntegrationStatus, String>),
     Doctor(String),
     ActionResult(Result<String, String>),
+}
+
+struct IntegrationStatus {
+    mime: String,
+    binfmt: bool,
+    daemon: String,
+    timer: String,
+    shared_folder: bool,
 }
 
 struct ResourceProcess {
@@ -96,6 +105,33 @@ fn build_ui(app: &adw::Application) {
     gpu_summary.set_wrap(true);
     let resources = build_resources(&tx, &resources_list, &resources_summary, &gpu_summary);
 
+    let network = build_info_page(
+        "Red",
+        &[
+            "Modo: NAT del host (slirp). El tráfico sale por la red del host.",
+            "VPN/proxy del host: se heredan a través del NAT.",
+            "DNS: el del host; el guest consulta a través del host.",
+            "LAN/mDNS/Chromecast: limitados por NAT (fase 4).",
+            "Configuración avanzada de proxy, DNS y puertos: pendiente de Fase 4.",
+        ],
+    );
+    let peripherals = build_info_page(
+        "Periféricos",
+        &[
+            "Audio: salida del emulador, mezcla global de Android + audio de scrcpy.",
+            "Portapapeles: sincronización de texto/URL mediante scrcpy.",
+            "Cámara: emulada; webcam del host pendiente de validación.",
+            "Micrófono: pendiente de portal/PipeWire.",
+            "Gamepad: scrcpy puede usar UHID; falta prueba y mapeo.",
+            "USB: no soportado en el MVP.",
+        ],
+    );
+    let integration_view = gtk::TextView::new();
+    integration_view.set_editable(false);
+    integration_view.set_monospace(true);
+    integration_view.set_wrap_mode(gtk::WrapMode::WordChar);
+    let integration = build_integration(&tx, &integration_view);
+
     let doctor_view = gtk::TextView::new();
     doctor_view.set_editable(false);
     doctor_view.set_monospace(true);
@@ -110,6 +146,9 @@ fn build_ui(app: &adw::Application) {
     stack.add_named(&home, Some("home"));
     stack.add_named(&apps, Some("apps"));
     stack.add_named(&resources, Some("resources"));
+    stack.add_named(&network, Some("network"));
+    stack.add_named(&peripherals, Some("peripherals"));
+    stack.add_named(&integration, Some("integration"));
     stack.add_named(&diagnostics, Some("diagnostics"));
     stack.add_named(&about, Some("about"));
     stack.set_visible_child_name("home");
@@ -122,6 +161,9 @@ fn build_ui(app: &adw::Application) {
         ("Inicio", "go-home-symbolic", "home"),
         ("Aplicaciones", "applications-other-symbolic", "apps"),
         ("Recursos", "utilities-system-monitor-symbolic", "resources"),
+        ("Red", "network-wired-symbolic", "network"),
+        ("Periféricos", "input-keyboard-symbolic", "peripherals"),
+        ("Integración", "emblem-synchronized-symbolic", "integration"),
         ("Diagnóstico", "dialog-information-symbolic", "diagnostics"),
         ("Acerca de", "help-about-symbolic", "about"),
     ];
@@ -169,6 +211,7 @@ fn build_ui(app: &adw::Application) {
     let resources_list_for_handler = resources_list.clone();
     let resources_summary_for_handler = resources_summary.clone();
     let gpu_summary_for_handler = gpu_summary.clone();
+    let integration_for_handler = integration_view.clone();
     let doctor_for_handler = doctor_view.clone();
     let toast_for_handler = toast_overlay.clone();
     gtk::glib::timeout_add_local(Duration::from_millis(100), move || {
@@ -207,6 +250,14 @@ fn build_ui(app: &adw::Application) {
                             .set_text(&format!("Recursos: error\n{error}"));
                     }
                 },
+                Msg::Integration(result) => match result {
+                    Ok(status) => integration_for_handler
+                        .buffer()
+                        .set_text(&integration_text(&status)),
+                    Err(error) => integration_for_handler
+                        .buffer()
+                        .set_text(&format!("Integración: error\n{error}")),
+                },
                 Msg::Doctor(output) => {
                     doctor_for_handler.buffer().set_text(&output);
                 }
@@ -220,6 +271,7 @@ fn build_ui(app: &adw::Application) {
                     }
                     spawn_status(tx_handler.clone());
                     spawn_apps(tx_handler.clone());
+                    spawn_integration(tx_handler.clone());
                 }
             }
         }
@@ -231,6 +283,7 @@ fn build_ui(app: &adw::Application) {
         spawn_status(tx_refresh.clone());
         spawn_apps(tx_refresh.clone());
         spawn_resources(tx_refresh.clone());
+        spawn_integration(tx_refresh.clone());
     });
 
     let tx_resources = tx.clone();
@@ -242,6 +295,7 @@ fn build_ui(app: &adw::Application) {
     spawn_status(tx.clone());
     spawn_apps(tx.clone());
     spawn_resources(tx.clone());
+    spawn_integration(tx.clone());
     spawn_doctor(tx.clone());
 }
 
@@ -765,6 +819,129 @@ fn tail_file(path: &Path, lines: usize) -> String {
     let all = text.lines().collect::<Vec<_>>();
     let start = all.len().saturating_sub(lines);
     all[start..].join("\n")
+}
+
+fn build_info_page(title: &str, lines: &[&str]) -> gtk::Widget {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    page.set_margin_top(24);
+    page.set_margin_bottom(24);
+    page.set_margin_start(28);
+    page.set_margin_end(28);
+    let heading = gtk::Label::new(Some(title));
+    heading.set_xalign(0.0);
+    heading.add_css_class("title-1");
+    page.append(&heading);
+    for line in lines {
+        let label = gtk::Label::new(Some(line));
+        label.set_xalign(0.0);
+        label.set_wrap(true);
+        page.append(&label);
+    }
+    page.upcast()
+}
+
+fn build_integration(tx: &Sender<Msg>, view: &gtk::TextView) -> gtk::Widget {
+    let page = gtk::Box::new(gtk::Orientation::Vertical, 12);
+    page.set_margin_top(18);
+    page.set_margin_bottom(18);
+    page.set_margin_start(18);
+    page.set_margin_end(18);
+
+    let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let title = gtk::Label::new(Some("Integración"));
+    title.set_xalign(0.0);
+    title.add_css_class("title-1");
+    title.set_hexpand(true);
+    let setup = gtk::Button::with_label("Reinstalar integración");
+    setup.add_css_class("suggested-action");
+    let sync = gtk::Button::with_label("Sincronizar apps");
+    toolbar.append(&title);
+    toolbar.append(&sync);
+    toolbar.append(&setup);
+    page.append(&toolbar);
+
+    let note = gtk::Label::new(Some(
+        "APK por doble clic, ./app.apk, daemon y timer. Reinstalar ejecuta `apkstart setup`.",
+    ));
+    note.set_xalign(0.0);
+    note.set_wrap(true);
+    note.add_css_class("dim-label");
+    page.append(&note);
+
+    let scrolled = gtk::ScrolledWindow::new();
+    scrolled.set_vexpand(true);
+    scrolled.set_child(Some(view));
+    page.append(&scrolled);
+
+    let tx_setup = tx.clone();
+    setup.connect_clicked(move |_| spawn_action(tx_setup.clone(), &["setup"]));
+    let tx_sync = tx.clone();
+    sync.connect_clicked(move |_| spawn_action(tx_sync.clone(), &["sync"]));
+    page.upcast()
+}
+
+fn spawn_integration(tx: Sender<Msg>) {
+    thread::spawn(move || {
+        let result = integration_status();
+        let _ = tx.send(Msg::Integration(result));
+    });
+}
+
+fn integration_status() -> Result<IntegrationStatus, String> {
+    let mime = Command::new("xdg-mime")
+        .args([
+            "query",
+            "default",
+            "application/vnd.android.package-archive",
+        ])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .unwrap_or_default();
+    let binfmt = Path::new("/proc/sys/fs/binfmt_misc/models-apk").exists();
+    let daemon = Command::new("systemctl")
+        .args(["--user", "is-active", "apkstartd.service"])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .unwrap_or_else(|_| "desconocido".to_string());
+    let timer = Command::new("systemctl")
+        .args(["--user", "is-active", "apkstart-sync.timer"])
+        .output()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .unwrap_or_else(|_| "desconocido".to_string());
+    let shared_folder = dirs::home_dir()
+        .map(|home| home.join("ApkStartShared").is_dir())
+        .unwrap_or(false);
+    Ok(IntegrationStatus {
+        mime: if mime.is_empty() {
+            "no registrado".to_string()
+        } else {
+            mime
+        },
+        binfmt,
+        daemon,
+        timer,
+        shared_folder,
+    })
+}
+
+fn integration_text(status: &IntegrationStatus) -> String {
+    format!(
+        "MIME APK: {}\n\
+         ./app.apk (binfmt): {}\n\
+         apkstartd: {}\n\
+         timer legado: {}\n\
+         carpeta compartida: {}\n\n\
+         La carpeta compartida, notificaciones y proxy son Fase 4.",
+        status.mime,
+        if status.binfmt { "OK" } else { "NO registrado" },
+        status.daemon,
+        status.timer,
+        if status.shared_folder {
+            "existe"
+        } else {
+            "pendiente (~/ApkStartShared)"
+        }
+    )
 }
 
 fn build_about() -> gtk::Widget {

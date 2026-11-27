@@ -114,7 +114,7 @@
 | Fase | Alcance | Estado |
 |---|---|---|
 | 1 | `apkstartd` + D-Bus `org.apkstart.Manager1`, sesiones, systemd --user, CLI cliente, sustituir el timer | Parcial: daemon integra runtime, install, sync, launch, stop y sync loop; faltan sesiones/adopción |
-| 2 | UI GTK4/libadwaita: runtime, apps, instalar/desinstalar, ajustes, diagnóstico | Parcial: Inicio, apps, instalar, diagnóstico y Acerca de |
+| 2 | UI GTK4/libadwaita: runtime, apps, instalar/desinstalar, ajustes, diagnóstico | Parcial: Inicio, apps, recursos, red, periféricos, integración, diagnóstico y Acerca de; faltan controles reales de red/periféricos |
 | 3 | Ventanas: persistencia de tamaño/estado, viewer propio o wrapper, límite multi-app, activity e iconos adaptativos | Parcial |
 | 4 | Integración: notificaciones bridge, carpeta compartida, red/proxy/DNS, portapapeles/audio, cámara/micrófono/gamepad/USB | Pendiente |
 | 5 | Empaquetado real Arch/deb/rpm, activación D-Bus, units systemd, hooks de instalación/desinstalación | Parcial: `packaging/install.sh` y hook binfmt |
@@ -349,10 +349,17 @@
 - `cargo test --workspace` verde, `clippy -D warnings` limpio.
 
 **Pendiente de Fase 2**
-- Páginas de Red, Periféricos e Integración.
-- Desinstalación y detalle por app (tamaño, permisos, ABI).
+- Controles reales de Red y Periféricos (proxy/DNS/puertos, audio/micrófono/cámara).
 - Persistencia de tamaño de ventana (Fase 3) y viewer propio.
 - Sustituir las llamadas al CLI por cliente D-Bus directo cuando la UI crezca.
+
+### 2026-11-27 — Fase 2: páginas de Red, Periféricos e Integración
+
+- Red: NAT del host, proxy/DNS heredados y límites de LAN/mDNS documentados en la UI.
+- Periféricos: estado de audio, portapapeles, cámara, micrófono, gamepad y USB.
+- Integración: estado de MIME de APK, binfmt `./app.apk`, daemon y timer, con botones para `setup` y `sync`.
+- Detalle de app: botón **Detalles** con package, versión, activity, SDK, ABIs, categorías y APK; opción **Desinstalar**.
+- La UI sigue delegando en el CLI; los controles avanzados de red/periféricos quedan para Fase 4.
 
 ### 2026-11-27 — Transparencia de recursos y logs en vivo
 
