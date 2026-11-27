@@ -386,6 +386,15 @@
 - Laboratorio visual en `docs/design/settings-ui/index.html`: 9 páginas (Inicio, Aplicaciones, Recursos, Red, Periféricos, Integración, Diagnóstico, Acerca y Resolución), **3 variantes por página** (A nativo refinado, B centro de control, C consola técnica), tema claro/oscuro, ruta por hash y calculadora de dp/dpi. Sirve para elegir la dirección antes de tocar GTK.
 - Recomendación de diseño: A como base, B para Inicio/Recursos/Diagnóstico y C solo como vista avanzada de logs.
 
+### 2026-11-27 — UI de ajustes variante B (centro de control)
+
+- El usuario eligió la variante **B** del laboratorio. `crates/apkstart-settings/src/ui.rs` concentra los componentes: `hero`, `card`, `metric`, `pill`, `header`, `flow` y `brand-mark`; las páginas solo componen datos y acciones.
+- Inicio: hero con estado del runtime (detenido/arrancando/en ejecución/degradado/error), métricas CPU/RAM/GPU en vivo y apps recientes, además de las acciones de runtime y sync.
+- Aplicaciones: tarjetas con icono, package, versión, categoría y acciones Detalles/Cerrar/Abrir; la instalación usa `GtkFileDialog` (no el `FileChooserNative` deprecado).
+- Recursos: métricas, una tarjeta por GPU con barra de uso/VRAM y tabla de procesos. Integración: tarjetas estructuradas con pills para MIME, binfmt, daemon, timer y carpeta compartida. Diagnóstico: Doctor y Logs en dos tarjetas lado a lado. Acerca de: hero + tarjetas de proyecto, licencia, motor y ventanas.
+- Responsive verificado a 1120, 653 y 500 px: el `AdwOverlaySplitView` pasa a overlay por debajo de **800 px** (botón de menú en el header), el contenido se limita a **1120 px** con `AdwClamp` y el `GtkFlowBox` homogéneo reordena las tarjetas de 3 a 2 a 1 columna.
+- `libadwaita` pasa a features `v1_4` + `gtk_v4_10` para `OverlaySplitView`, `BreakpointBin` y `MessageDialog`.
+
 
 ---
 

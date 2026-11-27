@@ -57,6 +57,7 @@ target/debug/apkstart runtime stop
 - **Persistencia:** el AVD no debe tener `disk.dataPartition.path=<temp>` y el arranque normal **no** debe usar `-no-snapshot-load`; debe usar quickboot. Si no, los APK desaparecen al reiniciar. `APKSTART_COLD_BOOT=1` es solo para recuperación. `doctor` avisa del AVD temporal.
 - **Identidad de ventana:** `apkstart-engine` exporta `SDL_APP_ID=io.github.apkstart.<pkg>` a scrcpy. No lo quites: sin eso todas las apps usan la clase `scrcpy` y pierden icono/agrupación. El `.desktop` y `StartupWMClass` usan el mismo id.
 - **Densidad de apps:** el display virtual es **552×984 a 215 dpi = 411 dp** (ancho de un Pixel 6), con `--flex-display`. Android dibuja por dp: si bajas el dpi, el texto crece y cabe menos; si lo subes, parece un teléfono pequeño. Al redimensionar la ventana el display cambia de píxeles con dpi fijo, así que el ancho lógico crece en vez de hacer zoom. No cambies `display_dpi` sin recalcular `dpi = round(ancho_px × 160 / ancho_dp)`.
+- **UI de ajustes responsive:** `AdwBreakpointBin` colapsa el `AdwOverlaySplitView` a overlay por debajo de 800 px (botón de menú en el header) y el contenido se limita con `AdwClamp` a 1120 px. Las tarjetas usan `GtkFlowBox` homogéneo (`360`/`380` px mínimo): 3 columnas en ancho, 1 en ventana estrecha. Requiere libadwaita con features `v1_4` y `gtk_v4_10`; sin ellas no existen `OverlaySplitView` ni `BreakpointBin`.
 - **Configuración:** `~/.config/apkstart/config.toml` (opcional) + variables `APKSTART_*`; `APKSTART_CONFIG` cambia el archivo. SDK por defecto `~/Android/Sdk`; scrcpy se autodetecta en `PATH` o `~/.local/opt/scrcpy`.
 - **Datos:** SQLite en `~/.local/share/apkstart/apkstart.db`, esquema con `PRAGMA user_version` (hoy 2, categorías; el daemon añadirá 3). No cambies columnas sin migración.
 - **Categorías:** los `.desktop` usan `Categories=` freedesktop a partir de `android:appCategory` + heurísticas de package/label; un `sync --refresh` regenera entradas antiguas.
@@ -80,7 +81,7 @@ target/debug/apkstart runtime stop
 - `apkstart-app`: install/registro/sync compartido entre CLI y daemon; aquí vive `register_app_from_apk` y `sync_apps`.
 - `apkstart-daemon`: `Manager` (sesiones scrcpy en memoria, install/sync con lock) + `apkstartd` D-Bus y bucle de sync.
 - `apkstart-cli`: binario `apkstart`; `src/daemon.rs` es el cliente D-Bus con fallback directo.
-- `apkstart-settings`: UI GTK4/libadwaita; llama al binario `apkstart` (runtime/apps/instalar/diagnóstico) y crea su entrada de menú con `apkstart setup`.
+- `apkstart-settings`: UI GTK4/libadwaita; llama al binario `apkstart` (runtime/apps/instalar/diagnóstico) y crea su entrada de menú con `apkstart setup`. El diseño vive en `src/ui.rs` (variante B: hero, cards, métricas, pills) y es responsive: sidebar overlay por debajo de 800 px, contenido con `AdwClamp` a 1120 px y tarjetas en `GtkFlowBox` que pasan de 3 a 2 a 1 columna.
 - Documentación y mensajes de usuario en español; identificadores y código en inglés.
 
 ## Documentos

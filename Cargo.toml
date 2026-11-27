@@ -30,7 +30,7 @@ apk-info = "1.1"
 clap = { version = "4.6", features = ["derive", "env"] }
 dirs = "7.0"
 gtk4 = "0.11"
-libadwaita = "0.9"
+libadwaita = { version = "0.9", features = ["v1_4", "gtk_v4_10"] }
 png = "0.18"
 rusqlite = { version = "0.43", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }

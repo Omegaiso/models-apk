@@ -1,7 +1,9 @@
 # Design Lab — ajustes de models-apk
 
-Prototipo navegable de la UI de ajustes. No es código de producción: sirve para
-elegir dirección visual antes de tocar GTK4/libadwaita.
+Prototipo navegable de la UI de ajustes. La variante **B · Centro de control**
+ya está implementada en `crates/apkstart-settings` (componentes en `ui.rs`), con
+sidebar colapsable y tarjetas que reflotan según el ancho. Este HTML queda como
+referencia de diseño y para comparar variantes.
 
 Abrir con:
 
