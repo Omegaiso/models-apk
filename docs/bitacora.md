@@ -69,7 +69,7 @@
 - [x] Workspace Rust (`crates/`, `Cargo.toml`, `rustfmt`, `clippy`)
 - [x] `apkstart-core`: tipos, errores, configuración, SQLite + migraciones
 - [x] `apkstart-apk`: manifiesto, label, versión, activity, ABIs, permisos e icono (vía `apk-info`, Apache-2.0)
-- [x] `apkstart-engine`: `AndroidEmulator`, cliente ADB y sesiones scrcpy
+- [x] `apkstart-engine`: `AndroidEmulator`, cliente ADB y sesiones scrcpy (falta extraer el trait `Engine` formal para el backend QEMU futuro)
 - [ ] `apkstart-daemon`: `apkstartd`, D-Bus `org.apkstart.Manager1`, systemd --user
 - [x] `apkstart-cli`: doctor, runtime start/stop/status, install, launch, list, uninstall, settings, export-log
 - [ ] `apkstart-viewer` propio: el MVP usa scrcpy directamente, con `SDL_APP_ID` por app
@@ -180,6 +180,16 @@
 - El arranque con quickboot es notablemente más rápido que el cold boot.
 
 **Riesgo residual:** un snapshot corrupto puede impedir el arranque; la recuperación es `APKSTART_COLD_BOOT=1` y, si hace falta, borrar `~/.android/avd/<avd>/snapshots/`. Se probará en el bloque de recuperación de fallos.
+
+**Checkpoint:** commit `0f62fe7` con el primer slice funcional y la documentación.
+
+**Siguiente bloque recomendado**
+1. `apkstartd` + D-Bus `org.apkstart.Manager1` (mover la lógica del CLI al daemon, systemd --user).
+2. Persistencia de tamaño/estado de ventana conectada a scrcpy/viewer.
+3. UI GTK4/libadwaita mínima (runtime, apps, diagnóstico).
+4. Manejador MIME para instalar APK desde el gestor de archivos.
+5. Selección correcta de activity e icono de máxima densidad.
+6. Pruebas manuales de input, portapapeles, audio audible y Hyprland/GNOME.
 
 ---
 
