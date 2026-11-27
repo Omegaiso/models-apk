@@ -226,8 +226,13 @@ fn build_ui(app: &adw::Application) {
         sidebar.append(&row);
         rows.push(row);
     }
-    if let Some(first) = rows.first() {
-        sidebar.select_row(Some(first));
+    let initial_page = std::env::var("APKSTART_PAGE").unwrap_or_else(|_| "home".to_string());
+    let initial_index = pages
+        .iter()
+        .position(|page| page.2 == initial_page)
+        .unwrap_or(0);
+    if let Some(row) = rows.get(initial_index) {
+        sidebar.select_row(Some(row));
     }
     let sidebar_scrolled = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
@@ -269,7 +274,7 @@ fn build_ui(app: &adw::Application) {
     stack.add_named(&integration_page.root, Some("integration"));
     stack.add_named(&diagnostics_page.root, Some("diagnostics"));
     stack.add_named(&about, Some("about"));
-    stack.set_visible_child_name("home");
+    stack.set_visible_child_name(&initial_page);
 
     split.set_sidebar(Some(&sidebar_box));
     split.set_content(Some(&stack));
@@ -1110,6 +1115,7 @@ fn check_card(eyebrow: &str) -> (gtk::Box, CheckWidgets) {
     let value = gtk::Label::new(Some("consultando…"));
     value.set_xalign(0.0);
     value.set_wrap(true);
+    value.set_max_width_chars(44);
     value.add_css_class("mono");
     card.append(&top);
     card.append(&value);
@@ -1301,6 +1307,105 @@ fn build_about() -> gtk::Widget {
         ui::flow_add(&grid, &ui::info_card(eyebrow, value, sub, None), 300);
     }
     body.append(&grid);
+
+    body.append(&ui::section("Pendiente y parcial"));
+    body.append(&ui::note(
+        "Parcial: funciona con límites conocidos. Pendiente: aún no implementado. Limitación: fuera del alcance del MVP.",
+    ));
+    let status_grid = ui::flow(2, 300);
+    for (eyebrow, value, sub, badge, class) in [
+        (
+            "DISTRIBUCIÓN",
+            "Actualizaciones automáticas",
+            "Comprobación de versión y descarga desde GitHub Releases. Fase 2.",
+            "pendiente",
+            "",
+        ),
+        (
+            "DISTRIBUCIÓN",
+            "Paquetes .deb · .rpm · Arch",
+            "Instaladores por distro y script curl. Fase 2.",
+            "pendiente",
+            "",
+        ),
+        (
+            "SESIONES",
+            "Persistencia y adopción",
+            "scrcpy no se re-adopta tras reiniciar el daemon; tabla sessions v3 pendiente.",
+            "pendiente",
+            "",
+        ),
+        (
+            "MULTIMONITOR",
+            "Foco y posición",
+            "KWin decide la posición; falta traer la ventana al monitor activo.",
+            "parcial",
+            "warn",
+        ),
+        (
+            "ARCHIVOS",
+            "Carpeta compartida",
+            "~/ApkStartShared y arrastrar archivos. Fase 4.",
+            "pendiente",
+            "",
+        ),
+        (
+            "NOTIFICACIONES",
+            "Android → escritorio",
+            "Reenvío de notificaciones Android al escritorio. Fase 4.",
+            "pendiente",
+            "",
+        ),
+        (
+            "RED",
+            "Proxy, DNS y puertos",
+            "LAN, mDNS y Chromecast limitados por NAT. Fase 4.",
+            "parcial",
+            "warn",
+        ),
+        (
+            "PERIFÉRICOS",
+            "Cámara, micro y gamepad",
+            "Audio y portapapeles funcionan; el resto está pendiente.",
+            "parcial",
+            "warn",
+        ),
+        (
+            "ICONOS",
+            "Adaptive icons",
+            "Bitmap o fallback con inicial; falta el icono adaptativo real.",
+            "parcial",
+            "warn",
+        ),
+        (
+            "PLAY STORE",
+            "Imagen no redistribuible",
+            "El usuario instala y acepta el SDK de Google.",
+            "limitación",
+            "hot",
+        ),
+        (
+            "COMPATIBILIDAD",
+            "ARM-only · DRM · anticheat",
+            "El motor x86_64 no ejecuta binarios ARM; DRM/anticheat puede fallar.",
+            "limitación",
+            "hot",
+        ),
+        (
+            "VISOR",
+            "Visor propio",
+            "Hoy se usa scrcpy; el visor nativo es Fase 3.",
+            "pendiente",
+            "",
+        ),
+    ] {
+        ui::flow_add(
+            &status_grid,
+            &ui::info_card(eyebrow, value, sub, Some((badge, class))),
+            300,
+        );
+    }
+    body.append(&status_grid);
     body.append(&ui::note(
         "github.com/Omegaiso/models-apk · El SDK y la imagen de Android los instala y acepta el usuario.",
     ));

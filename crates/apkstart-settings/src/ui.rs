@@ -290,8 +290,11 @@ pub fn info_card(eyebrow: &str, value: &str, sub: &str, badge: Option<(&str, &st
     value_label.add_css_class("card-title");
     value_label.set_xalign(0.0);
     value_label.set_wrap(true);
+    value_label.set_max_width_chars(34);
+    let sub_label = note(sub);
+    sub_label.set_max_width_chars(44);
     card.append(&top);
     card.append(&value_label);
-    card.append(&note(sub));
+    card.append(&sub_label);
     card
 }
