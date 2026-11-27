@@ -14,6 +14,7 @@
 | 2026-11-27 | Imagen de spike: **Google APIs** (sin Play Store) | Tiene GMS y suele permitir `adb root`; evita las restricciones de la imagen Play. |
 | 2026-11-27 | Prioridad: **estabilidad y usabilidad** del sistema completo | No se optimiza ni se migra de motor antes de cerrar la Fase 1. |
 | 2026-11-27 | SDK de Android en el home del usuario (`~/Android/Sdk`) | No requiere root ni contamina el sistema; el usuario controla licencias e imágenes. |
+| 2026-11-27 | Nombre del proyecto/repositorio: **models-apk** (`github.com/Omegaiso/models-apk`) | Nombre elegido por el usuario. Los identificadores internos `apkstart-*` se mantienen hasta un rename controlado. |
 
 ---
 
@@ -190,6 +191,13 @@
 4. Manejador MIME para instalar APK desde el gestor de archivos.
 5. Selección correcta de activity e icono de máxima densidad.
 6. Pruebas manuales de input, portapapeles, audio audible y Hyprland/GNOME.
+
+### 2026-11-27 — Repositorio y nombre models-apk
+
+- El proyecto se respalda en `https://github.com/Omegaiso/models-apk` (privado).
+- Nombre de proyecto/repositorio: **models-apk**.
+- Se mantienen los identificadores internos `apkstart-*`, el binario `apkstart` y las rutas `~/.config/apkstart` / `~/.local/share/apkstart` hasta un rename coordinado que migre configuración, base de datos, `.desktop`, iconos y `app_id`.
+- Backup del primer slice de Fase 1, AGENTS.md, README y esta bitácora.
 
 ---
 

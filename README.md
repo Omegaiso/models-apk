@@ -1,6 +1,8 @@
-# ApkStart Linux
+# models-apk
 
 Gestor nativo de aplicaciones Android para Linux: Android completo sobre Android Emulator/QEMU, una ventana Wayland por aplicación y sin mostrar el escritorio Android.
+
+> Proyecto: **models-apk**. Los identificadores internos (`apkstart-*`, binario `apkstart`, rutas `~/.config/apkstart`) se mantienen por compatibilidad hasta un rename controlado.
 
 El diseño y las decisiones están en [`docs/plan-inicial/`](docs/plan-inicial/). El avance real se registra en [`docs/bitacora.md`](docs/bitacora.md).
 
