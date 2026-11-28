@@ -29,6 +29,7 @@ Sin Electron, sin Node y sin el escritorio Android.
 - Crea la entrada `.desktop`, el icono y la **categoría freedesktop** correcta.
 - Sincroniza cada 15 s las apps instaladas dentro de Android (por ejemplo desde F-Droid).
 - Ofrece una UI de ajustes con estado del runtime, apps, CPU/RAM/GPU, integración y logs.
+- **Periféricos**: audio y portapapeles con scrcpy, cámara del host, micrófono del host y gamepad UHID, configurables desde Ajustes.
 
 ## Capturas
 
@@ -39,6 +40,8 @@ Sin Electron, sin Node y sin el escritorio Android.
 | Recursos | Integración |
 |---|---|
 | <img src="docs/images/recursos.png" alt="CPU, RAM, GPU y procesos"> | <img src="docs/images/integracion.png" alt="MIME, binfmt, daemon y timer"> |
+
+<img src="docs/images/perifericos.png" alt="Periféricos: cámara, micrófono, gamepad y audio" width="860">
 
 La página **Acerca de** incluye la lista viva de lo pendiente, lo parcial y las limitaciones
 conocidas del MVP.
@@ -55,6 +58,8 @@ conocidas del MVP.
 | Sesión | Wayland | **KDE Plasma Wayland** (probado); GNOME/Hyprland pendientes |
 | SDK | Android SDK + imagen API 34 `google_apis` x86_64 | Igual |
 | scrcpy | 5.x | 5.0.1 o superior |
+| Webcam (opcional) | V4L2 (`/dev/video*`) | Para usar la cámara del host en Android |
+| Mando (opcional) | Linux input/evdev | Gamepad reenviado por UHID |
 | Compilar | Rust 1.95+, GTK4 y libadwaita | Igual |
 
 Consumo medido en el host de desarrollo: guest de **3 GB**, emulador de **2,3–3,8 GiB RSS**,
@@ -151,6 +156,9 @@ apkstart install --launch app.apk      # instala y abre la app
 apkstart launch org.fdroid.fdroid      # abre una app ya instalada
 apkstart stop org.fdroid.fdroid        # cierra su ventana
 apkstart sync                          # trae apps instaladas dentro de Android
+apkstart peripherals                    # cámara, micrófono y gamepad
+apkstart peripherals --camera-back webcam0
+apkstart runtime restart               # aplica cámara/micrófono
 apkstart-settings                      # UI de ajustes
 apkstart doctor                        # diagnóstico
 ```
@@ -209,6 +217,9 @@ Más detalle técnico: [arquitectura](docs/arquitectura.md) ·
 | La ventana de una app aparece **negra** | Carrera del display virtual / app ya en un display destruido (bug abierto) | Cierra la ventana y vuelve a abrirla; ver [bugs](docs/bugs.md#ventana-negra-al-abrir-una-app) |
 | `./app.apk` da permiso denegado | `binfmt_misc` sin registrar | Ejecuta `sudo packaging/install.sh` o `apkstart setup` |
 | No hay audio | PipeWire/PulseAudio o sesión sin audio | Comprueba `doctor`; prueba con otra app |
+| La cámara sale negra | Webcam no seleccionada o en uso | Elige `webcam0` en Periféricos y reinicia Android |
+| El gamepad no aparece | UHID no soportado o mando conectado después | Android 12+; conecta el mando y abre la app de nuevo |
+| El micrófono no captura | Backend de audio del emulador | El proyecto usa ALSA para entrada; revisa `QEMU_AUDIO_IN_DRV` y PipeWire |
 | Snapshot de arranque corrupto | Quickboot inválido | `APKSTART_COLD_BOOT=1 apkstart runtime start` |
 
 Guía ampliada: [instalación y errores](docs/instalacion.md).

@@ -247,6 +247,18 @@ impl AndroidEmulator {
             .arg("-gpu")
             .arg(&self.config.gpu_mode)
             .arg("-no-metrics")
+            .arg("-camera-back")
+            .arg(if self.config.camera_back.trim().is_empty() {
+                "none"
+            } else {
+                &self.config.camera_back
+            })
+            .arg("-camera-front")
+            .arg(if self.config.camera_front.trim().is_empty() {
+                "none"
+            } else {
+                &self.config.camera_front
+            })
             .arg("-accel")
             .arg(if kvm { "on" } else { "off" })
             .arg("-port")
@@ -258,6 +270,16 @@ impl AndroidEmulator {
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(stderr))
             .kill_on_drop(false);
+
+        if self.config.host_audio_input {
+            command.arg("-allow-host-audio");
+            // El backend PulseAudio del emulador falla en algunos hosts con
+            // PipeWire; ALSA usa la compatibilidad de PipeWire y permite la
+            // entrada de micrófono. Se puede sobreescribir desde el entorno.
+            if std::env::var_os("QEMU_AUDIO_IN_DRV").is_none() {
+                command.env("QEMU_AUDIO_IN_DRV", "alsa");
+            }
+        }
 
         if self.config.cold_boot {
             command.arg("-no-snapshot-load");

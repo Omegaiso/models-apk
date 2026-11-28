@@ -1,5 +1,6 @@
 mod ui;
 
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -30,6 +31,7 @@ enum Msg {
     Apps(Result<Vec<App>, String>),
     Resources(Result<ResourceReport, String>),
     Integration(Result<IntegrationStatus, String>),
+    Peripherals(Result<String, String>),
     Doctor(String),
     ActionResult(Result<String, String>),
 }
@@ -122,6 +124,31 @@ struct IntegrationPage {
     timer: CheckWidgets,
     shared: CheckWidgets,
     overall: gtk::Label,
+}
+
+#[derive(Clone)]
+struct PeripheralsPage {
+    root: gtk::Widget,
+    pill: gtk::Label,
+    audio_value: gtk::Label,
+    audio_sub: gtk::Label,
+    audio_pill: gtk::Label,
+    mic_value: gtk::Label,
+    mic_sub: gtk::Label,
+    mic_pill: gtk::Label,
+    camera_value: gtk::Label,
+    camera_sub: gtk::Label,
+    camera_pill: gtk::Label,
+    gamepad_value: gtk::Label,
+    gamepad_sub: gtk::Label,
+    gamepad_pill: gtk::Label,
+    camera_back: adw::ComboRow,
+    camera_front: adw::ComboRow,
+    host_audio: adw::SwitchRow,
+    gamepad: adw::SwitchRow,
+    back_modes: Rc<RefCell<Vec<String>>>,
+    front_modes: Rc<RefCell<Vec<String>>>,
+    updating: Rc<Cell<bool>>,
 }
 
 #[derive(Clone)]
@@ -261,7 +288,7 @@ fn build_ui(app: &adw::Application) {
     let apps_page = build_apps(&tx, &window);
     let resources_page = build_resources(&tx);
     let network = build_network();
-    let peripherals = build_peripherals();
+    let peripherals_page = build_peripherals(&tx, &window);
     let integration_page = build_integration(&tx);
     let diagnostics_page = build_diagnostics(&tx);
     let about = build_about();
@@ -270,7 +297,7 @@ fn build_ui(app: &adw::Application) {
     stack.add_named(&apps_page.root, Some("apps"));
     stack.add_named(&resources_page.root, Some("resources"));
     stack.add_named(&network, Some("network"));
-    stack.add_named(&peripherals, Some("peripherals"));
+    stack.add_named(&peripherals_page.root, Some("peripherals"));
     stack.add_named(&integration_page.root, Some("integration"));
     stack.add_named(&diagnostics_page.root, Some("diagnostics"));
     stack.add_named(&about, Some("about"));
@@ -335,6 +362,7 @@ fn build_ui(app: &adw::Application) {
     let apps_for_handler = apps_page.clone();
     let resources_for_handler = resources_page.clone();
     let integration_for_handler = integration_page.clone();
+    let peripherals_for_handler = peripherals_page.clone();
     let doctor_for_handler = diagnostics_page.doctor.clone();
     gtk::glib::timeout_add_local(Duration::from_millis(100), move || {
         while let Ok(message) = rx.try_recv() {
@@ -376,6 +404,15 @@ fn build_ui(app: &adw::Application) {
                         .overall
                         .set_text(&format!("Integración: error — {error}")),
                 },
+                Msg::Peripherals(result) => match result {
+                    Ok(json) => fill_peripherals(&peripherals_for_handler, &json),
+                    Err(error) => {
+                        ui::set_pill(&peripherals_for_handler.pill, "error", "hot");
+                        peripherals_for_handler
+                            .audio_sub
+                            .set_text(&format!("No se pudieron leer los periféricos: {error}"));
+                    }
+                },
                 Msg::Doctor(output) => {
                     doctor_for_handler.buffer().set_text(&output);
                 }
@@ -391,6 +428,7 @@ fn build_ui(app: &adw::Application) {
                     spawn_apps(tx_handler.clone());
                     spawn_resources(tx_handler.clone());
                     spawn_integration(tx_handler.clone());
+                    spawn_peripherals(tx_handler.clone());
                 }
             }
         }
@@ -403,6 +441,7 @@ fn build_ui(app: &adw::Application) {
         spawn_apps(tx_refresh.clone());
         spawn_resources(tx_refresh.clone());
         spawn_integration(tx_refresh.clone());
+        spawn_peripherals(tx_refresh.clone());
     });
 
     let tx_resources = tx.clone();
@@ -415,6 +454,7 @@ fn build_ui(app: &adw::Application) {
     spawn_apps(tx.clone());
     spawn_resources(tx.clone());
     spawn_integration(tx.clone());
+    spawn_peripherals(tx.clone());
     spawn_doctor(tx.clone());
 }
 
@@ -998,59 +1038,366 @@ fn build_network() -> gtk::Widget {
     ui::page(&body)
 }
 
-fn build_peripherals() -> gtk::Widget {
+fn build_peripherals(tx: &Sender<Msg>, window: &gtk::ApplicationWindow) -> PeripheralsPage {
     let body = ui::page_body();
-    let head = ui::header("DEVICES", "Periféricos", "Audio, entrada y sensores");
-    ui::set_pill(&head.pill, "MVP", "accent");
+    let head = ui::header(
+        "DEVICES",
+        "Periféricos",
+        "Cámara, micrófono, gamepad y audio",
+    );
+    let pill = head.pill.clone();
+    let refresh = gtk::Button::with_label("Actualizar");
+    let restart = gtk::Button::with_label("Reiniciar Android");
+    head.action(&refresh);
+    head.action(&restart);
     body.append(&head.root);
 
-    let items = [
-        (
-            "AUDIO",
-            "Salida del emulador",
-            "Mezcla global de Android y audio de scrcpy.",
-            Some(("activo", "ok")),
-        ),
-        (
-            "PORTAPAPELES",
-            "Sincronización",
-            "Texto y URL entre el host y Android mediante scrcpy.",
-            Some(("activo", "ok")),
-        ),
-        (
-            "CÁMARA",
-            "Emulada",
-            "Webcam del host pendiente de validación.",
-            Some(("parcial", "warn")),
-        ),
-        (
-            "MICRÓFONO",
-            "Portal / PipeWire",
-            "Pendiente de integración con el portal del escritorio.",
-            Some(("pendiente", "")),
-        ),
-        (
-            "GAMEPAD",
-            "UHID de scrcpy",
-            "Falta prueba y mapeo de mandos.",
-            Some(("pendiente", "")),
-        ),
-        (
-            "USB",
-            "USB host",
-            "No soportado en el MVP.",
-            Some(("no soportado", "hot")),
-        ),
-    ];
-    let grid = ui::flow(2, 300);
-    for (eyebrow, value, sub, badge) in items {
-        ui::flow_add(&grid, &ui::info_card(eyebrow, value, sub, badge), 300);
+    let grid = ui::flow(3, 280);
+    let (audio_card, audio_value, audio_sub, audio_pill) = peripheral_card("AUDIO");
+    let (mic_card, mic_value, mic_sub, mic_pill) = peripheral_card("MICRÓFONO");
+    let (camera_card, camera_value, camera_sub, camera_pill) = peripheral_card("CÁMARA");
+    let (gamepad_card, gamepad_value, gamepad_sub, gamepad_pill) = peripheral_card("GAMEPAD");
+    let (clipboard_card, clipboard_value, clipboard_sub, clipboard_pill) =
+        peripheral_card("PORTAPAPELES");
+    let (usb_card, usb_value, usb_sub, usb_pill) = peripheral_card("USB");
+    ui::set_pill(&clipboard_pill, "activo", "ok");
+    clipboard_value.set_text("Sincronización scrcpy");
+    clipboard_sub.set_text("Texto y URL entre el host y Android.");
+    ui::set_pill(&usb_pill, "no soportado", "hot");
+    usb_value.set_text("USB host");
+    usb_sub.set_text("Fuera del alcance del MVP.");
+    for card in [
+        &audio_card,
+        &mic_card,
+        &camera_card,
+        &gamepad_card,
+        &clipboard_card,
+        &usb_card,
+    ] {
+        ui::flow_add(&grid, card, 280);
     }
-    body.append(&grid);
-    body.append(&ui::note(
-        "El audio se mezcla globalmente en Android; scrcpy sincroniza el portapapeles. Cámara, micrófono y gamepad son Fase 4.",
+
+    body.append(&ui::section("Controles"));
+    let controls = adw::PreferencesGroup::new();
+    controls.set_title("Cámara y entrada");
+    controls.set_description(Some(
+        "Los cambios se guardan en ~/.config/apkstart/config.toml.",
     ));
-    ui::page(&body)
+
+    let camera_back = adw::ComboRow::new();
+    camera_back.set_title("Cámara trasera");
+    camera_back.set_subtitle("Se aplica al reiniciar Android");
+    camera_back.set_model(Some(&gtk::StringList::new(&["Emulada", "Ninguna"])));
+    let camera_front = adw::ComboRow::new();
+    camera_front.set_title("Cámara frontal");
+    camera_front.set_subtitle("Se aplica al reiniciar Android");
+    camera_front.set_model(Some(&gtk::StringList::new(&["Emulada", "Ninguna"])));
+
+    let host_audio = adw::SwitchRow::new();
+    host_audio.set_title("Micrófono del host");
+    host_audio.set_subtitle("Emulador · requiere reiniciar Android");
+    let gamepad = adw::SwitchRow::new();
+    gamepad.set_title("Gamepad UHID");
+    gamepad.set_subtitle("scrcpy · se aplica a la próxima ventana");
+
+    controls.add(&camera_back);
+    controls.add(&camera_front);
+    controls.add(&host_audio);
+    controls.add(&gamepad);
+    body.append(&controls);
+    body.append(&ui::note(
+        "La cámara se toma de una webcam del host mediante el emulador. El micrófono usa la fuente por defecto de PipeWire/PulseAudio. El gamepad se reenvía a Android como HID virtual (UHID).",
+    ));
+
+    body.append(&ui::section("Estado detectado"));
+    body.append(&grid);
+
+    let updating = Rc::new(Cell::new(false));
+    let back_modes = Rc::new(RefCell::new(vec![
+        "emulated".to_string(),
+        "none".to_string(),
+    ]));
+    let front_modes = Rc::new(RefCell::new(vec![
+        "emulated".to_string(),
+        "none".to_string(),
+    ]));
+
+    let tx_back = tx.clone();
+    let guard_back = updating.clone();
+    let modes_back = back_modes.clone();
+    camera_back.connect_selected_notify(move |row| {
+        if guard_back.get() {
+            return;
+        }
+        let index = row.selected() as usize;
+        let mode = modes_back.borrow().get(index).cloned();
+        if let Some(mode) = mode {
+            spawn_action(tx_back.clone(), &["peripherals", "--camera-back", &mode]);
+        }
+    });
+    let tx_front = tx.clone();
+    let guard_front = updating.clone();
+    let modes_front = front_modes.clone();
+    camera_front.connect_selected_notify(move |row| {
+        if guard_front.get() {
+            return;
+        }
+        let index = row.selected() as usize;
+        let mode = modes_front.borrow().get(index).cloned();
+        if let Some(mode) = mode {
+            spawn_action(tx_front.clone(), &["peripherals", "--camera-front", &mode]);
+        }
+    });
+    let tx_mic = tx.clone();
+    let guard_mic = updating.clone();
+    host_audio.connect_active_notify(move |row| {
+        if guard_mic.get() {
+            return;
+        }
+        spawn_action(
+            tx_mic.clone(),
+            &[
+                "peripherals",
+                "--host-audio",
+                if row.is_active() { "on" } else { "off" },
+            ],
+        );
+    });
+    let tx_pad = tx.clone();
+    let guard_pad = updating.clone();
+    gamepad.connect_active_notify(move |row| {
+        if guard_pad.get() {
+            return;
+        }
+        spawn_action(
+            tx_pad.clone(),
+            &[
+                "peripherals",
+                "--gamepad",
+                if row.is_active() { "on" } else { "off" },
+            ],
+        );
+    });
+
+    let tx_refresh = tx.clone();
+    refresh.connect_clicked(move |_| spawn_peripherals(tx_refresh.clone()));
+
+    let tx_restart = tx.clone();
+    let window_restart = window.clone();
+    restart.connect_clicked(move |_| {
+        let dialog = adw::MessageDialog::new(
+            Some(&window_restart),
+            Some("Reiniciar Android"),
+            Some("Se cerrarán todas las apps abiertas y el arranque puede tardar. ¿Continuar?"),
+        );
+        dialog.add_response("cancel", "Cancelar");
+        dialog.add_response("restart", "Reiniciar");
+        dialog.set_response_appearance("restart", adw::ResponseAppearance::Destructive);
+        dialog.set_close_response("cancel");
+        dialog.set_default_response(Some("cancel"));
+        let tx = tx_restart.clone();
+        dialog.connect_response(None, move |dialog, response| {
+            if response == "restart" {
+                spawn_action(tx.clone(), &["runtime", "restart"]);
+            }
+            dialog.close();
+        });
+        dialog.present();
+    });
+
+    PeripheralsPage {
+        root: ui::page(&body),
+        pill,
+        audio_value,
+        audio_sub,
+        audio_pill,
+        mic_value,
+        mic_sub,
+        mic_pill,
+        camera_value,
+        camera_sub,
+        camera_pill,
+        gamepad_value,
+        gamepad_sub,
+        gamepad_pill,
+        camera_back,
+        camera_front,
+        host_audio,
+        gamepad,
+        back_modes,
+        front_modes,
+        updating,
+    }
+}
+
+fn peripheral_card(eyebrow: &str) -> (gtk::Box, gtk::Label, gtk::Label, gtk::Label) {
+    let card = ui::card();
+    let top = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let label = gtk::Label::new(Some(eyebrow));
+    label.add_css_class("eyebrow");
+    label.set_xalign(0.0);
+    let spacer = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    spacer.set_hexpand(true);
+    let pill = ui::pill("…", "");
+    top.append(&label);
+    top.append(&spacer);
+    top.append(&pill);
+    let value = gtk::Label::new(Some("consultando…"));
+    value.add_css_class("card-title");
+    value.set_xalign(0.0);
+    value.set_wrap(true);
+    value.set_max_width_chars(30);
+    let sub = ui::note("—");
+    sub.set_max_width_chars(44);
+    card.append(&top);
+    card.append(&value);
+    card.append(&sub);
+    (card, value, sub, pill)
+}
+
+fn camera_mode_label(mode: &str) -> String {
+    match mode {
+        "emulated" => "Emulada".to_string(),
+        "none" => "Ninguna".to_string(),
+        value if value.starts_with("webcam") => {
+            format!("Webcam {}", value.trim_start_matches("webcam"))
+        }
+        value => value.to_string(),
+    }
+}
+
+fn camera_model(webcams: &[String], current: &str) -> (Vec<String>, Vec<String>, u32) {
+    let mut labels = vec!["Emulada".to_string(), "Ninguna".to_string()];
+    let mut values = vec!["emulated".to_string(), "none".to_string()];
+    for webcam in webcams {
+        labels.push(format!("Webcam {}", webcam.trim_start_matches("webcam")));
+        values.push(webcam.clone());
+    }
+    if !values.iter().any(|value| value == current) {
+        labels.push(current.to_string());
+        values.push(current.to_string());
+    }
+    let selected = values
+        .iter()
+        .position(|value| value == current)
+        .unwrap_or(0) as u32;
+    (labels, values, selected)
+}
+
+fn fill_peripherals(page: &PeripheralsPage, json: &str) {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+        return;
+    };
+    let camera_back = value["camera_back"].as_str().unwrap_or("emulated");
+    let camera_front = value["camera_front"].as_str().unwrap_or("none");
+    let host_audio = value["host_audio_input"].as_bool().unwrap_or(false);
+    let gamepad = value["gamepad_uhid"].as_bool().unwrap_or(false);
+    let running = value["runtime_running"].as_bool().unwrap_or(false);
+    let webcams = value["webcams"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let gamepads = value["gamepads"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let audio_server = value["audio_server"].as_str();
+    let microphone = value["microphone"].as_str();
+
+    ui::set_pill(
+        &page.pill,
+        if running { "En ejecución" } else { "Detenido" },
+        if running { "ok" } else { "warn" },
+    );
+
+    let (back_labels, back_modes, back_selected) = camera_model(&webcams, camera_back);
+    let (front_labels, front_modes, front_selected) = camera_model(&webcams, camera_front);
+    page.updating.set(true);
+    let back_refs = back_labels.iter().map(String::as_str).collect::<Vec<_>>();
+    let front_refs = front_labels.iter().map(String::as_str).collect::<Vec<_>>();
+    page.camera_back
+        .set_model(Some(&gtk::StringList::new(&back_refs)));
+    page.camera_back.set_selected(back_selected);
+    page.camera_front
+        .set_model(Some(&gtk::StringList::new(&front_refs)));
+    page.camera_front.set_selected(front_selected);
+    page.host_audio.set_active(host_audio);
+    page.gamepad.set_active(gamepad);
+    *page.back_modes.borrow_mut() = back_modes;
+    *page.front_modes.borrow_mut() = front_modes;
+    page.updating.set(false);
+
+    page.audio_value
+        .set_text(audio_server.unwrap_or("Sin servidor"));
+    page.audio_sub.set_text("Salida del emulador vía scrcpy.");
+    ui::set_pill(
+        &page.audio_pill,
+        if audio_server.is_some() {
+            "activo"
+        } else {
+            "sin audio"
+        },
+        if audio_server.is_some() { "ok" } else { "warn" },
+    );
+
+    page.mic_value.set_text(if host_audio {
+        "Host → Android"
+    } else {
+        "Desactivado"
+    });
+    page.mic_sub
+        .set_text(microphone.unwrap_or("Sin fuente por defecto de PipeWire/PulseAudio."));
+    let mic_class = if host_audio && microphone.is_some() {
+        ("activo", "ok")
+    } else if host_audio {
+        ("sin fuente", "warn")
+    } else {
+        ("off", "")
+    };
+    ui::set_pill(&page.mic_pill, mic_class.0, mic_class.1);
+
+    page.camera_value.set_text(&camera_mode_label(camera_back));
+    let camera_sub = if webcams.is_empty() {
+        "Sin webcams detectadas en el host.".to_string()
+    } else {
+        format!("Disponibles: {}", webcams.join(", "))
+    };
+    page.camera_sub.set_text(&camera_sub);
+    let camera_class = if camera_back.starts_with("webcam") {
+        ("webcam", "ok")
+    } else if camera_back == "none" {
+        ("ninguna", "warn")
+    } else {
+        ("emulada", "accent")
+    };
+    ui::set_pill(&page.camera_pill, camera_class.0, camera_class.1);
+
+    page.gamepad_value.set_text(if gamepad {
+        "UHID activo"
+    } else {
+        "Desactivado"
+    });
+    let gamepad_sub = if gamepads.is_empty() {
+        "Sin mandos detectados; el UHID queda listo.".to_string()
+    } else {
+        format!("Detectados: {}", gamepads.join(", "))
+    };
+    page.gamepad_sub.set_text(&gamepad_sub);
+    ui::set_pill(
+        &page.gamepad_pill,
+        if gamepad { "UHID" } else { "off" },
+        if gamepad { "accent" } else { "" },
+    );
 }
 
 fn build_integration(tx: &Sender<Msg>) -> IntegrationPage {
@@ -1366,7 +1713,7 @@ fn build_about() -> gtk::Widget {
         (
             "PERIFÉRICOS",
             "Cámara, micro y gamepad",
-            "Audio y portapapeles funcionan; el resto está pendiente.",
+            "Controles en Periféricos; cámara verificada con webcam; micro y gamepad pendientes de prueba audible/física.",
             "parcial",
             "warn",
         ),
@@ -1688,6 +2035,13 @@ fn tail_file(path: &Path, lines: usize) -> String {
     let all = text.lines().collect::<Vec<_>>();
     let start = all.len().saturating_sub(lines);
     all[start..].join("\n")
+}
+
+fn spawn_peripherals(tx: Sender<Msg>) {
+    thread::spawn(move || {
+        let result = run_cli(&["peripherals", "--json"]);
+        let _ = tx.send(Msg::Peripherals(result));
+    });
 }
 
 fn spawn_integration(tx: Sender<Msg>) {

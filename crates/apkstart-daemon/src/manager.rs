@@ -45,9 +45,18 @@ impl Manager {
     /// Arranca el emulador y espera el boot completo. Operación larga.
     pub async fn start_runtime(&self) -> Result<RuntimeStatus, String> {
         let _operation = self.operation.lock().await;
-        let emulator = AndroidEmulator::new(self.config.clone());
+        let emulator = AndroidEmulator::new(self.fresh_config());
         emulator.start().await.map_err(|error| error.to_string())?;
         Ok(self.runtime_status().await)
+    }
+
+    /// Recarga `config.toml` para que los cambios de periféricos se apliquen
+    /// sin reiniciar el daemon.
+    fn fresh_config(&self) -> Config {
+        Config::load().unwrap_or_else(|error| {
+            tracing::warn!(%error, "no se pudo recargar la configuración; se usa la del daemon");
+            self.config.clone()
+        })
     }
 
     /// Detiene el emulador; las sesiones scrcpy mueren al perder ADB.
@@ -104,10 +113,11 @@ impl Manager {
     /// Si ya hay una sesión viva devuelve su pid sin abrir otra. Si la sesión
     /// guardada murió (pid reaped por tokio), se reemplaza con una nueva.
     pub async fn launch(&self, package: &str) -> Result<u32, String> {
+        let config = self.fresh_config();
         {
             let mut sessions = self.sessions.lock().await;
             if let Some(pid) = sessions.get(package).and_then(ScrcpySession::pid) {
-                if scrcpy_alive(pid, &self.config.serial()) {
+                if scrcpy_alive(pid, &config.serial()) {
                     return Ok(pid);
                 }
                 tracing::info!(package = %package, pid, "sesión scrcpy muerta; se relanza");
@@ -117,21 +127,21 @@ impl Manager {
         }
 
         // Título de ventana: label registrado; si no hay registro, el package.
-        let title = Db::open(&self.config.db_path())
+        let title = Db::open(&config.db_path())
             .ok()
             .and_then(|db| db.get_app(package).ok().flatten())
             .map(|app| app.label)
             .unwrap_or_else(|| package.to_string());
 
         // Preparar el runtime puede tardar minutos en el primer arranque.
-        let emulator = AndroidEmulator::new(self.config.clone());
+        let emulator = AndroidEmulator::new(config.clone());
         let adb = emulator
             .ensure_running()
             .await
             .map_err(|error| error.to_string())?;
 
-        let options = ScrcpyOptions::from_config(&self.config, package, title);
-        let mut session = ScrcpySession::spawn(&self.config, adb.serial(), &options)
+        let options = ScrcpyOptions::from_config(&config, package, title);
+        let mut session = ScrcpySession::spawn(&config, adb.serial(), &options)
             .await
             .map_err(|error| error.to_string())?;
 

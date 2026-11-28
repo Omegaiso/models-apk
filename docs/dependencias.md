@@ -70,6 +70,8 @@ arrastra su propio parser; no se reimplementa AXML.
 | D-Bus de sesión | — | Sí para el daemon | `org.apkstart.Manager1`. |
 | `xdg-mime` | — | Para integración | Handler MIME de APK. |
 | `binfmt_misc` | módulo del kernel | Para `./app.apk` | Registro en `/proc/sys/fs/binfmt_misc`. |
+| Webcam V4L2 | `/dev/video*` | Opcional | Cámara del host para el emulador (`-camera-back webcam0`). |
+| Mando Linux input | `/dev/input/*` | Opcional | Reenvío UHID con scrcpy. |
 
 El emulador incluye QEMU; **no** se instala QEMU del sistema. El SDK y la imagen
 de Google no se redistribuyen: cada usuario los descarga y acepta sus licencias.

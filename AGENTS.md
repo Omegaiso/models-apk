@@ -20,6 +20,8 @@ cargo test --workspace
 cargo run -p apkstart-cli -- doctor
 cargo run -p apkstart-cli -- setup
 cargo run -p apkstart-cli -- sync
+cargo run -p apkstart-cli -- peripherals
+cargo run -p apkstart-cli -- runtime restart
 cargo run -p apkstart-daemon            # apkstartd en primer plano
 cargo run -p apkstart-settings          # UI GTK4/libadwaita
 target/debug/apkstart doctor
@@ -56,6 +58,7 @@ target/debug/apkstart runtime stop
 
 - **Persistencia:** el AVD no debe tener `disk.dataPartition.path=<temp>` y el arranque normal **no** debe usar `-no-snapshot-load`; debe usar quickboot. Si no, los APK desaparecen al reiniciar. `APKSTART_COLD_BOOT=1` es solo para recuperación. `doctor` avisa del AVD temporal.
 - **Identidad de ventana:** `apkstart-engine` exporta `SDL_APP_ID=io.github.apkstart.<pkg>` a scrcpy. No lo quites: sin eso todas las apps usan la clase `scrcpy` y pierden icono/agrupación. El `.desktop` y `StartupWMClass` usan el mismo id.
+- **Periféricos:** cámara con `-camera-back/-camera-front` (`emulator -webcam-list` para `webcamN`); micrófono con `-allow-host-audio` + `QEMU_AUDIO_IN_DRV=alsa` (el driver `pa` del emulador falla con PipeWire); gamepad con scrcpy `--gamepad=uhid`. Se guardan en `config.toml` (`camera_back`, `camera_front`, `host_audio_input`, `gamepad_uhid`) y se editan con `apkstart peripherals`. El daemon recarga la config en `start_runtime`/`launch`; cámara y micrófono requieren `runtime restart`, el gamepad se aplica a la próxima ventana.
 - **Densidad de apps:** el display virtual es **552×984 a 215 dpi = 411 dp** (ancho de un Pixel 6), con `--flex-display`. Android dibuja por dp: si bajas el dpi, el texto crece y cabe menos; si lo subes, parece un teléfono pequeño. Al redimensionar la ventana el display cambia de píxeles con dpi fijo, así que el ancho lógico crece en vez de hacer zoom. No cambies `display_dpi` sin recalcular `dpi = round(ancho_px × 160 / ancho_dp)`.
 - **UI de ajustes responsive:** `AdwBreakpointBin` colapsa el `AdwOverlaySplitView` a overlay por debajo de 800 px (botón de menú en el header) y el contenido se limita con `AdwClamp` a 1120 px. Las tarjetas usan `GtkFlowBox` homogéneo (`360`/`380` px mínimo): 3 columnas en ancho, 1 en ventana estrecha. Requiere libadwaita con features `v1_4` y `gtk_v4_10`; sin ellas no existen `OverlaySplitView` ni `BreakpointBin`.
 - **Configuración:** `~/.config/apkstart/config.toml` (opcional) + variables `APKSTART_*`; `APKSTART_CONFIG` cambia el archivo. SDK por defecto `~/Android/Sdk`; scrcpy se autodetecta en `PATH` o `~/.local/opt/scrcpy`.

@@ -405,6 +405,16 @@
 - Se añadieron capturas reales en `docs/images/` (1120×780/900 y la ventana de F-Droid a 552×1012). No se hicieron más pruebas de UI después del reporte del bug.
 
 
+### 2026-11-28 — Periféricos: cámara, micrófono y gamepad
+
+- **Cámara del host**: el emulador acepta `-camera-back/-camera-front` con `emulated`, `none` o `webcamN`; `emulator -webcam-list` lista las webcams. Verificado con `webcam0` y la app Camera del sistema: la ventana muestra el vídeo en directo de la webcam del host.
+- **Micrófono**: se pasa `-allow-host-audio` cuando está activo y se fuerza `QEMU_AUDIO_IN_DRV=alsa` si el usuario no define otro backend. El driver `pa` del emulador falla con PipeWire en este host (`Could not init pa audio driver`), pero el proceso qemu recibe el backend ALSA. Falta una prueba audible formal.
+- **Gamepad**: scrcpy recibe `--gamepad=uhid` o `--gamepad=disabled`; verificado en los argumentos del proceso. No hay mando físico en el host para probar el reenvío.
+- **CLI**: nuevo `apkstart peripherals` (texto y `--json`) con `--camera-back`, `--camera-front`, `--host-audio on|off` y `--gamepad on|off`; `runtime restart` reinicia para aplicar cámara/micrófono. Los ajustes se guardan en `config.toml` conservando el resto de claves.
+- **Daemon**: recarga la configuración en `start_runtime` y `launch` (`fresh_config`), así los cambios se aplican sin reiniciar `apkstartd`.
+- **UI**: la página Periféricos pasa de tarjetas estáticas a controles reales. Arriba, `AdwComboRow` para cámara trasera/frontal y `AdwSwitchRow` para micrófono/gamepad; debajo, estado detectado (servidor de audio, fuente por defecto, webcams, mandos) y botón **Reiniciar Android** con confirmación. El gamepad se aplica a la próxima ventana; cámara y micrófono, al reiniciar.
+- **Pendiente**: prueba audible del micrófono con una app de grabación, prueba con un mando físico y USB (fuera del MVP). La cámara frontal y trasera no pueden compartir la misma webcam.
+
 ---
 
 ## 6. Bloqueos y riesgos activos
@@ -429,3 +439,5 @@
 | GPU AMD con `-gpu host` | Por validar | Fallback `swiftshader_indirect`; medir |
 | Ventana negra al abrir una app | Abierto | Cerrar y reabrir; documentado en `docs/bugs.md`; siguiente: lock por package + wake/stay-awake + posible force-stop |
 | Instaladores y actualizaciones | Pendiente Fase 2 | Diseño en `docs/actualizaciones.md`; repositorio público y GitHub Actions |
+| Micrófono del host | Parcial | `-allow-host-audio` + `QEMU_AUDIO_IN_DRV=alsa`; falta prueba audible |
+| Gamepad UHID | Parcial | `--gamepad=uhid` verificado en args; falta mando físico |

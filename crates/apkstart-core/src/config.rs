@@ -28,6 +28,10 @@ pub struct Config {
     pub display_height: u32,
     pub display_dpi: u32,
     pub gpu_mode: String,
+    pub camera_back: String,
+    pub camera_front: String,
+    pub host_audio_input: bool,
+    pub gamepad_uhid: bool,
     pub data_dir: PathBuf,
     pub state_dir: PathBuf,
     pub boot_timeout_secs: u64,
@@ -92,6 +96,11 @@ impl Default for Config {
             display_height: 984,
             display_dpi: 215,
             gpu_mode: "host".to_string(),
+            // Modos del emulador: "emulated", "none", "webcam0", ...
+            camera_back: "emulated".to_string(),
+            camera_front: "none".to_string(),
+            host_audio_input: true,
+            gamepad_uhid: true,
             data_dir,
             state_dir,
             boot_timeout_secs: 180,
@@ -189,6 +198,44 @@ impl Config {
         Ok(())
     }
 
+    /// Guarda solo los ajustes de periféricos en `config.toml`, conservando el
+    /// resto de claves que el usuario tenga escritas a mano.
+    pub fn save_peripheral_settings(&self) -> Result<()> {
+        let path = Self::config_path();
+        let mut root = if path.is_file() {
+            let text = fs::read_to_string(&path)?;
+            toml::from_str::<toml::Value>(&text).unwrap_or(toml::Value::Table(Default::default()))
+        } else {
+            toml::Value::Table(Default::default())
+        };
+        let table = root.as_table_mut().ok_or_else(|| {
+            crate::Error::Config("la configuración raíz debe ser una tabla".into())
+        })?;
+        table.insert(
+            "camera_back".into(),
+            toml::Value::String(self.camera_back.clone()),
+        );
+        table.insert(
+            "camera_front".into(),
+            toml::Value::String(self.camera_front.clone()),
+        );
+        table.insert(
+            "host_audio_input".into(),
+            toml::Value::Boolean(self.host_audio_input),
+        );
+        table.insert(
+            "gamepad_uhid".into(),
+            toml::Value::Boolean(self.gamepad_uhid),
+        );
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let text = toml::to_string_pretty(&root)
+            .map_err(|error| crate::Error::Config(error.to_string()))?;
+        fs::write(path, text)?;
+        Ok(())
+    }
+
     fn apply_env(&mut self) {
         if let Some(value) = env::var_os("APKSTART_SDK_ROOT") {
             self.sdk_root = PathBuf::from(value);
@@ -218,6 +265,18 @@ impl Config {
         }
         if let Some(value) = env::var_os("APKSTART_GPU") {
             self.gpu_mode = value.to_string_lossy().into_owned();
+        }
+        if let Some(value) = env::var_os("APKSTART_CAMERA_BACK") {
+            self.camera_back = value.to_string_lossy().into_owned();
+        }
+        if let Some(value) = env::var_os("APKSTART_CAMERA_FRONT") {
+            self.camera_front = value.to_string_lossy().into_owned();
+        }
+        if let Ok(value) = env::var("APKSTART_HOST_AUDIO") {
+            self.host_audio_input = truthy(&value);
+        }
+        if let Ok(value) = env::var("APKSTART_GAMEPAD") {
+            self.gamepad_uhid = truthy(&value);
         }
         if let Some(value) = env::var_os("APKSTART_SCRCPY") {
             self.scrcpy_path = PathBuf::from(value);
@@ -289,6 +348,13 @@ fn find_scrcpy_server() -> Option<PathBuf> {
     .find(|path| path.is_file())
 }
 
+fn truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 fn expand_path(path: &Path, home: &Path) -> PathBuf {
     let text = path.to_string_lossy();
     if text == "~" {
@@ -340,5 +406,25 @@ mod tests {
         assert_eq!(config.emulator_port, 5556);
         assert_eq!(config.adb_port, 5038);
         assert_eq!(config.display_dpi, 215);
+        assert_eq!(config.camera_back, "emulated");
+        assert_eq!(config.camera_front, "none");
+        assert!(config.host_audio_input);
+        assert!(config.gamepad_uhid);
+    }
+
+    #[test]
+    fn parses_peripheral_settings() {
+        let config: Config = toml::from_str(
+            r#"
+            camera_back = "webcam0"
+            camera_front = "none"
+            host_audio_input = false
+            gamepad_uhid = false
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.camera_back, "webcam0");
+        assert!(!config.host_audio_input);
+        assert!(!config.gamepad_uhid);
     }
 }

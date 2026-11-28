@@ -121,7 +121,43 @@ tail -f ~/.local/state/apkstart/sessions/org.fdroid.fdroid.log
 journalctl --user -u apkstartd -f
 ```
 
-## 5. `./app.apk` y doble clic
+## 5. Periféricos
+
+La cámara, el micrófono y el gamepad se configuran desde **Ajustes → Periféricos**
+o por CLI:
+
+```bash
+apkstart peripherals                     # estado detectado
+apkstart peripherals --json              # para la UI
+apkstart peripherals --camera-back webcam0
+apkstart peripherals --camera-front none
+apkstart peripherals --host-audio on
+apkstart peripherals --gamepad off
+apkstart runtime restart                 # aplica cámara y micrófono
+```
+
+- **Cámara**: `emulator -webcam-list` muestra las webcams disponibles
+  (`webcam0`, `webcam1`, …). El modo `emulated` usa la escena falsa del emulador.
+  Una webcam no puede usarse simultáneamente como trasera y frontal.
+- **Micrófono**: el emulador arranca con `-allow-host-audio` y
+  `hw.audioInput=yes`. Si el driver `pa` del emulador falla con PipeWire, el
+  proyecto define `QEMU_AUDIO_IN_DRV=alsa`; puedes sobreescribirlo en el entorno
+  del daemon (`systemctl --user edit apkstartd`).
+- **Gamepad**: scrcpy lo reenvía como HID virtual (`--gamepad=uhid`, Android 12+).
+  Conecta el mando antes de abrir la app; se aplica a la próxima ventana.
+- **Audio/portapapeles**: scrcpy captura el audio de salida y sincroniza el
+  portapapeles; no requieren configuración.
+
+La configuración se guarda en `~/.config/apkstart/config.toml`:
+
+```toml
+camera_back = "emulated"
+camera_front = "none"
+host_audio_input = true
+gamepad_uhid = true
+```
+
+## 6. `./app.apk` y doble clic
 
 - El `.desktop` del handler usa `Exec=apkstart install --launch %f` y
   `Terminal=true` para mostrar el progreso.
@@ -138,7 +174,7 @@ chmod +x app.apk
 Si el APK no tiene permiso de ejecución, `chmod +x` es necesario. No ejecutes el
 instalador como root para lanzar apps: el wrapper baja privilegios.
 
-## 6. Desinstalación
+## 7. Desinstalación
 
 ```bash
 # Integración de usuario
@@ -159,7 +195,7 @@ rm -f ~/.local/share/applications/io.github.apkstart.*.desktop
 Los paquetes de distro deben ejecutar el hook de binfmt en `postinst` y
 `prerm`; ver [`packaging/README.md`](../packaging/README.md).
 
-## 7. Errores y resolución
+## 8. Errores y resolución
 
 | Error / síntoma | Causa | Solución |
 |---|---|---|
@@ -174,6 +210,9 @@ Los paquetes de distro deben ejecutar el hook de binfmt en `postinst` y
 | `./app.apk: permiso denegado` | binfmt sin registrar o sin `chmod +x` | `sudo packaging/install.sh`; `chmod +x`. |
 | Sin audio | PipeWire/PulseAudio o sesión muda | Probar `apkstart doctor`; revisar el log de scrcpy; comprobar el mezclador. |
 | La ventana se abre en otro monitor | KWin decide la posición en Wayland | Moverla manualmente; foco multi-monitor pendiente. |
+| La cámara sale negra | Webcam no seleccionada o en uso | `apkstart peripherals --camera-back webcam0` y `runtime restart`. |
+| El micrófono no captura | Backend de audio del emulador | Revisar `QEMU_AUDIO_IN_DRV=alsa`; probar otra fuente en PipeWire. |
+| El gamepad no aparece | UHID o mando no visible | Android 12+; conectar antes de abrir la app. |
 | UI de ajustes no abre | Falta GTK/libadwaita o el binario | `cargo build -p apkstart-settings`; ejecutar desde terminal para ver el error. |
 
 Para un informe de bug, adjunta:

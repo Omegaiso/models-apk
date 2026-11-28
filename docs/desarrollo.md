@@ -134,6 +134,26 @@ Valores: `home`, `apps`, `resources`, `network`, `peripherals`, `integration`,
 `diagnostics`, `about`. Es una variable **solo de desarrollo**; sin ella la UI
 abre en Inicio.
 
+### Periféricos
+
+```bash
+apkstart peripherals                       # estado y configuración
+apkstart peripherals --json                # consumo de la UI
+apkstart peripherals --camera-back webcam0
+apkstart runtime restart
+```
+
+La cámara se puede validar abriendo la app Camera del sistema en una sesión:
+
+```bash
+target/debug/apkstart launch com.android.camera2
+```
+
+El micrófono usa `-allow-host-audio` y `QEMU_AUDIO_IN_DRV=alsa`. Para depurar el
+backend, revisa `~/.local/state/apkstart/emulator.log` y
+`pactl info`/`pactl list sources`. El gamepad se comprueba con `--gamepad=uhid`
+en los argumentos de scrcpy y un mando visible en `/dev/input`.
+
 ### Capturas para documentación
 
 Procedimiento usado para `docs/images/` (KDE Wayland):

@@ -17,6 +17,8 @@ pub struct ScrcpyOptions {
     pub width: u32,
     pub height: u32,
     pub dpi: u32,
+    #[serde(default)]
+    pub gamepad_uhid: bool,
 }
 
 impl ScrcpyOptions {
@@ -31,6 +33,7 @@ impl ScrcpyOptions {
             width: config.display_width,
             height: config.display_height,
             dpi: config.display_dpi,
+            gamepad_uhid: config.gamepad_uhid,
         }
     }
 
@@ -71,6 +74,11 @@ impl ScrcpySession {
             .arg("--display-ime-policy=local")
             .arg("--keep-active")
             .arg("--no-vd-system-decorations")
+            .arg(if options.gamepad_uhid {
+                "--gamepad=uhid"
+            } else {
+                "--gamepad=disabled"
+            })
             .arg(format!("--window-title={}", options.title))
             .arg("--max-fps=60")
             .arg("--video-bit-rate=8M")

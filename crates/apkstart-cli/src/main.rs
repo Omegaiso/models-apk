@@ -88,6 +88,24 @@ enum Command {
         /// Package Android.
         package: String,
     },
+    /// Lista y configura cámara, micrófono y gamepad.
+    Peripherals {
+        /// Salida JSON para la UI.
+        #[arg(long)]
+        json: bool,
+        /// Modo de cámara trasera: emulated, none, webcam0, ...
+        #[arg(long)]
+        camera_back: Option<String>,
+        /// Modo de cámara frontal: emulated, none, webcam0, ...
+        #[arg(long)]
+        camera_front: Option<String>,
+        /// Micrófono del host: on/off.
+        #[arg(long)]
+        host_audio: Option<String>,
+        /// Gamepad UHID: on/off.
+        #[arg(long)]
+        gamepad: Option<String>,
+    },
     /// Muestra la ruta de configuración y el estado de la UI de ajustes.
     Settings,
     /// Exporta logs y diagnóstico a un directorio.
@@ -106,6 +124,8 @@ enum RuntimeCommand {
     Start,
     /// Detiene el emulador.
     Stop,
+    /// Reinicia el emulador para aplicar cámara o micrófono.
+    Restart,
 }
 
 #[tokio::main]
@@ -139,6 +159,23 @@ async fn run(cli: Cli) -> Result<()> {
         Command::List { json, all } => list(&config, json, all).await,
         Command::Uninstall { package, keep_data } => uninstall(&config, &package, keep_data).await,
         Command::Stop { package } => stop(&package).await,
+        Command::Peripherals {
+            json,
+            camera_back,
+            camera_front,
+            host_audio,
+            gamepad,
+        } => {
+            peripherals(
+                &config,
+                json,
+                camera_back,
+                camera_front,
+                host_audio,
+                gamepad,
+            )
+            .await
+        }
         Command::Settings => settings(&config),
         Command::ExportLog => export_log(&config).await,
     }
@@ -469,50 +506,60 @@ async fn runtime(config: &Config, command: RuntimeCommand) -> Result<()> {
                 println!("Apps de terceros instaladas: {}", packages.len());
             }
         }
-        RuntimeCommand::Start => {
-            println!("Arrancando Android headless (esto puede tardar)...");
-            let status = match daemon::start_runtime().await {
-                daemon::Call::Ok(json) => Some(
-                    serde_json::from_str(&json)
-                        .context("respuesta de arranque inválida del daemon")?,
-                ),
-                daemon::Call::Unavailable => {
-                    emulator.start().await.context("arrancando el runtime")?;
-                    None
-                }
-                daemon::Call::Failed(error) => bail!("apkstartd: {error}"),
-            };
-            if let Some(status) = status {
-                print_runtime_status(&status);
-            }
-            println!("Runtime listo: {}", config.serial());
-            println!("Log del emulador: {}", config.emulator_log_path().display());
-            match sync_report(config, false, false).await {
-                Ok(report) if report.added > 0 || report.removed > 0 => {
-                    println!(
-                        "Apps actualizadas en el escritorio: +{} / -{}",
-                        report.added, report.removed
-                    );
-                }
-                Ok(_) => {}
-                Err(error) => eprintln!("aviso: no se pudieron sincronizar las apps: {error:#}"),
-            }
-        }
-        RuntimeCommand::Stop => {
-            match daemon::stop_runtime().await {
-                daemon::Call::Ok(json) => {
-                    let status: apkstart_core::RuntimeStatus = serde_json::from_str(&json)
-                        .context("respuesta de parada inválida del daemon")?;
-                    print_runtime_status(&status);
-                }
-                daemon::Call::Unavailable => {
-                    emulator.stop().await.context("deteniendo el runtime")?;
-                }
-                daemon::Call::Failed(error) => bail!("apkstartd: {error}"),
-            }
-            println!("Runtime detenido");
+        RuntimeCommand::Start => start_emulator(config, &emulator).await?,
+        RuntimeCommand::Stop => stop_emulator(&emulator).await?,
+        RuntimeCommand::Restart => {
+            println!("Reiniciando Android headless (aplicando periféricos)...");
+            stop_emulator(&emulator).await?;
+            start_emulator(config, &emulator).await?;
         }
     }
+    Ok(())
+}
+
+async fn start_emulator(config: &Config, emulator: &AndroidEmulator) -> Result<()> {
+    println!("Arrancando Android headless (esto puede tardar)...");
+    let status = match daemon::start_runtime().await {
+        daemon::Call::Ok(json) => {
+            Some(serde_json::from_str(&json).context("respuesta de arranque inválida del daemon")?)
+        }
+        daemon::Call::Unavailable => {
+            emulator.start().await.context("arrancando el runtime")?;
+            None
+        }
+        daemon::Call::Failed(error) => bail!("apkstartd: {error}"),
+    };
+    if let Some(status) = status {
+        print_runtime_status(&status);
+    }
+    println!("Runtime listo: {}", config.serial());
+    println!("Log del emulador: {}", config.emulator_log_path().display());
+    match sync_report(config, false, false).await {
+        Ok(report) if report.added > 0 || report.removed > 0 => {
+            println!(
+                "Apps actualizadas en el escritorio: +{} / -{}",
+                report.added, report.removed
+            );
+        }
+        Ok(_) => {}
+        Err(error) => eprintln!("aviso: no se pudieron sincronizar las apps: {error:#}"),
+    }
+    Ok(())
+}
+
+async fn stop_emulator(emulator: &AndroidEmulator) -> Result<()> {
+    match daemon::stop_runtime().await {
+        daemon::Call::Ok(json) => {
+            let status: apkstart_core::RuntimeStatus =
+                serde_json::from_str(&json).context("respuesta de parada inválida del daemon")?;
+            print_runtime_status(&status);
+        }
+        daemon::Call::Unavailable => {
+            emulator.stop().await.context("deteniendo el runtime")?;
+        }
+        daemon::Call::Failed(error) => bail!("apkstartd: {error}"),
+    }
+    println!("Runtime detenido");
     Ok(())
 }
 
@@ -652,6 +699,7 @@ async fn launch(
         width,
         height,
         dpi: dpi.unwrap_or(config.display_dpi),
+        gamepad_uhid: config.gamepad_uhid,
     };
     let session = ScrcpySession::spawn(config, adb.serial(), &options)
         .await
@@ -755,6 +803,222 @@ async fn stop(package: &str) -> Result<()> {
         daemon::Call::Failed(error) => bail!("apkstartd: {error}"),
     }
     Ok(())
+}
+
+async fn peripherals(
+    config: &Config,
+    json: bool,
+    camera_back: Option<String>,
+    camera_front: Option<String>,
+    host_audio: Option<String>,
+    gamepad: Option<String>,
+) -> Result<()> {
+    let mut config = config.clone();
+    let mut changed = false;
+    if let Some(value) = camera_back {
+        config.camera_back = normalize_camera_mode(&value);
+        changed = true;
+    }
+    if let Some(value) = camera_front {
+        config.camera_front = normalize_camera_mode(&value);
+        changed = true;
+    }
+    if let Some(value) = host_audio {
+        config.host_audio_input = parse_toggle(&value)?;
+        changed = true;
+    }
+    if let Some(value) = gamepad {
+        config.gamepad_uhid = parse_toggle(&value)?;
+        changed = true;
+    }
+    if changed {
+        config
+            .save_peripheral_settings()
+            .context("guardando ajustes de periféricos")?;
+    }
+
+    let webcams = list_webcams(&config);
+    let (audio_server, microphone) = audio_report();
+    let gamepads = list_gamepads();
+    let runtime_running = AndroidEmulator::new(config.clone()).is_online().await;
+
+    if json {
+        let report = serde_json::json!({
+            "camera_back": config.camera_back,
+            "camera_front": config.camera_front,
+            "host_audio_input": config.host_audio_input,
+            "gamepad_uhid": config.gamepad_uhid,
+            "webcams": webcams,
+            "audio_server": audio_server,
+            "microphone": microphone,
+            "gamepads": gamepads,
+            "runtime_running": runtime_running,
+            "config_path": Config::config_path().display().to_string(),
+        });
+        println!("{}", serde_json::to_string(&report)?);
+        return Ok(());
+    }
+
+    println!("Periféricos");
+    println!("  Cámara trasera: {}", config.camera_back);
+    println!("  Cámara frontal: {}", config.camera_front);
+    println!(
+        "  Micrófono host: {}",
+        if config.host_audio_input {
+            "activado"
+        } else {
+            "desactivado"
+        }
+    );
+    println!(
+        "  Gamepad UHID:   {}",
+        if config.gamepad_uhid {
+            "activado"
+        } else {
+            "desactivado"
+        }
+    );
+    println!(
+        "  Webcams:        {}",
+        if webcams.is_empty() {
+            "ninguna detectada".to_string()
+        } else {
+            webcams.join(", ")
+        }
+    );
+    println!(
+        "  Audio:          {}",
+        audio_server.as_deref().unwrap_or("sin servidor de audio")
+    );
+    println!(
+        "  Micrófono:      {}",
+        microphone.as_deref().unwrap_or("sin fuente por defecto")
+    );
+    println!(
+        "  Gamepads:       {}",
+        if gamepads.is_empty() {
+            "ninguno detectado".to_string()
+        } else {
+            gamepads.join(", ")
+        }
+    );
+    println!(
+        "  Runtime:        {}",
+        if runtime_running {
+            "en ejecución"
+        } else {
+            "detenido"
+        }
+    );
+    println!("  Configuración:  {}", Config::config_path().display());
+    if changed {
+        println!();
+        println!("Ajustes guardados.");
+        println!(
+            "Cámara y micrófono se aplican al reiniciar Android; el gamepad, a la próxima ventana."
+        );
+    }
+    Ok(())
+}
+
+fn parse_toggle(value: &str) -> Result<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" | "si" | "sí" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => bail!("valor booleano inválido: {value} (usa on/off)"),
+    }
+}
+
+fn normalize_camera_mode(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" | "ninguna" | "ninguno" | "disabled" => "none".to_string(),
+        "emulada" | "emulado" | "fake" | "virtualscene" => "emulated".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn list_webcams(config: &Config) -> Vec<String> {
+    if !config.emulator_path.is_file() {
+        return Vec::new();
+    }
+    let Ok(output) = ProcessCommand::new(&config.emulator_path)
+        .arg("-webcam-list")
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    parse_webcam_labels(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_webcam_labels(text: &str) -> Vec<String> {
+    let mut labels = text
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|token| {
+            token.len() > 6
+                && token.starts_with("webcam")
+                && token[6..]
+                    .chars()
+                    .all(|character| character.is_ascii_digit())
+        })
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    labels.sort();
+    labels.dedup();
+    labels
+}
+
+fn audio_report() -> (Option<String>, Option<String>) {
+    let server = ProcessCommand::new("pactl")
+        .arg("info")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .find_map(|line| line.strip_prefix("Server Name:").map(str::trim))
+                .map(str::to_string)
+        });
+    let source = ProcessCommand::new("pactl")
+        .args(["get-default-source"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|value| !value.is_empty());
+    (server, source)
+}
+
+fn list_gamepads() -> Vec<String> {
+    let mut found = Vec::new();
+    for directory in ["/dev/input/by-id", "/dev/input/by-path"] {
+        let Ok(entries) = fs::read_dir(directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let lower = name.to_ascii_lowercase();
+            if lower.contains("joystick") || lower.contains("gamepad") {
+                found.push(format!("{directory}/{name}"));
+            }
+        }
+    }
+    if found.is_empty()
+        && let Ok(entries) = fs::read_dir("/dev/input")
+    {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with("js") {
+                found.push(format!("/dev/input/{name}"));
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
 }
 
 fn settings(config: &Config) -> Result<()> {
@@ -912,5 +1176,25 @@ mod tests {
             }
             _ => panic!("comando inesperado"),
         }
+    }
+    #[test]
+    fn parses_webcam_labels() {
+        let output = "List of web cameras connected to the computer:\n Camera 'HP Wide Vision HD Camera: HP Wi' can be specified by label as 'webcam0' or by id as '/dev/v4l/by-id/...' and will use pixel format 'MJPG'\n";
+        assert_eq!(parse_webcam_labels(output), vec!["webcam0"]);
+    }
+
+    #[test]
+    fn parses_toggles() {
+        assert!(parse_toggle("on").unwrap());
+        assert!(parse_toggle(" true ").unwrap());
+        assert!(!parse_toggle("off").unwrap());
+        assert!(parse_toggle("quizá").is_err());
+    }
+
+    #[test]
+    fn normalizes_camera_modes() {
+        assert_eq!(normalize_camera_mode("Emulada"), "emulated");
+        assert_eq!(normalize_camera_mode("ninguna"), "none");
+        assert_eq!(normalize_camera_mode("webcam1"), "webcam1");
     }
 }

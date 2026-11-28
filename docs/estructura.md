@@ -104,7 +104,9 @@ reordena las tarjetas de 3 a 2 a 1 columna. Requiere libadwaita con features
 apkstart doctor          # KVM, SDK, emulador, AVD, scrcpy, Wayland, D-Bus
 apkstart setup           # integración de escritorio, MIME, daemon
 apkstart sync [--refresh] [--if-running] [--quiet]
-apkstart runtime start|stop|status
+apkstart runtime start|stop|restart|status
+apkstart peripherals [--json] [--camera-back MODE] [--camera-front MODE]
+                    [--host-audio on|off] [--gamepad on|off]
 apkstart install [--launch] <apk>
 apkstart launch [--title] [--size] [--dpi] <package>
 apkstart list [--json]
@@ -165,12 +167,21 @@ parcial.
 | `APKSTART_RAM_MB` | `3072` | RAM del guest |
 | `APKSTART_CORES` | `4` | vCPU del guest |
 | `APKSTART_GPU` | `host` | modo GPU (`host`, `swiftshader_indirect`, …) |
+| `APKSTART_CAMERA_BACK` | `emulated` | cámara trasera (`emulated`, `none`, `webcam0`, …) |
+| `APKSTART_CAMERA_FRONT` | `none` | cámara frontal |
+| `APKSTART_HOST_AUDIO` | `true` | micrófono del host → Android (`-allow-host-audio`) |
+| `APKSTART_GAMEPAD` | `true` | gamepad UHID de scrcpy |
+| `QEMU_AUDIO_IN_DRV` | `alsa` (si el micrófono está activo) | backend de entrada del emulador; `pa` falla en algunos hosts PipeWire |
 | `APKSTART_SCRCPY` | autodetectado | binario scrcpy |
 | `APKSTART_SCRCPY_SERVER` | autodetectado | `scrcpy-server` |
 | `APKSTART_CONFIG` | `~/.config/apkstart/config.toml` | archivo TOML alternativo |
 | `APKSTART_ALLOW_TCG` | `false` | permite arrancar sin KVM (muy lento) |
 | `APKSTART_COLD_BOOT` | `false` | fuerza arranque en frío |
 | `APKSTART_PAGE` | `home` | **solo QA**: página inicial de la UI (`home`, `apps`, `resources`, `network`, `peripherals`, `integration`, `diagnostics`, `about`) |
+
+Los ajustes de periféricos también viven en `config.toml` (`camera_back`,
+`camera_front`, `host_audio_input`, `gamepad_uhid`) y se guardan con
+`Config::save_peripheral_settings`, que conserva el resto de claves del archivo.
 
 Rutas:
 

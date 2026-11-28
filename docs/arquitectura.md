@@ -157,6 +157,37 @@ Wayland y esa clase en X11. El `.desktop` y `StartupWMClass` usan el mismo valor
 por lo que el compositor asocia icono, menú y agrupación. Sin esta variable todas
 las apps compartirían la clase `scrcpy`.
 
+### Periféricos
+
+| Periférico | Implementación | Alcance |
+|---|---|---|
+| Audio de salida | scrcpy captura el audio del guest (`--audio-source=output`) y lo reproduce en el host. | Funciona; la UI muestra el servidor de audio detectado. |
+| Micrófono | Emulador con `-allow-host-audio` + `hw.audioInput=yes`. Se fuerza `QEMU_AUDIO_IN_DRV=alsa` si el usuario no define otro backend, porque el driver `pa` del emulador falla en hosts PipeWire. | Configurable (`host_audio_input`); falta prueba audible formal. |
+| Cámara | Emulador `-camera-back/-camera-front` con `emulated`, `none` o `webcamN`; la lista sale de `emulator -webcam-list`. | Verificada con la webcam del host en la app Camera. |
+| Gamepad | scrcpy `--gamepad=uhid` (Android 12+); `--gamepad=disabled` si se apaga. | Configurable (`gamepad_uhid`); sin mando físico en el host de desarrollo. |
+| Portapapeles | Sincronización de scrcpy (texto/URL). | Activo. |
+| USB | — | Fuera del MVP. |
+
+Los ajustes se guardan en `~/.config/apkstart/config.toml` y se consultan/cambian con
+`apkstart peripherals [--json]`:
+
+```toml
+camera_back = "emulated"     # emulated | none | webcam0 | ...
+camera_front = "none"
+host_audio_input = true
+gamepad_uhid = true
+```
+
+El daemon recarga la configuración al arrancar el runtime y al abrir una app
+(`Manager::fresh_config`). Cámara y micrófono requieren **reiniciar Android**;
+el gamepad se aplica a la **próxima ventana**. La página Periféricos de Ajustes
+usa `apkstart peripherals --json` para el estado y escribe los cambios con
+`--camera-back`, `--camera-front`, `--host-audio on|off` y `--gamepad on|off`.
+
+Límites: una webcam no se puede usar a la vez como trasera y frontal; UHID
+necesita Android 12+ y el mando visible en `/dev/input`; el micrófono depende del
+backend de audio del host (PipeWire/PulseAudio).
+
 ## 6. Sincronización con el escritorio
 
 - `apkstartd` ejecuta un bucle cada **15 s**:

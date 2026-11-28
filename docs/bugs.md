@@ -130,10 +130,11 @@ el PID muerto y el siguiente `launch` crea un display nuevo.
 | Foco/posición multi-monitor | **Parcial** | KWin decide la posición en Wayland; `--window-x/y` se ignoran. La ventana puede abrirse en el otro monitor. Falta activation token o regla KWin. |
 | Iconos adaptativos | **Parcial** | Se usa el bitmap si existe; si solo hay adaptive vectorial, se genera un PNG con la inicial. Falta renderizar el adaptive real y elegir la densidad máxima. |
 | Red | **Parcial** | NAT de slirp; LAN/mDNS/Chromecast no transparentes. Proxy/DNS/puertos avanzados, Fase 4. |
-| Periféricos | **Parcial** | Audio y portapapeles funcionan; cámara, micrófono y gamepad pendientes de validación. |
+| Periféricos | **Parcial** | Audio/portapapeles funcionan. Cámara verificada con webcam del host; micrófono y gamepad implementados pero pendientes de prueba audible/física. |
 | Persistencia de ventana | **Parcial** | Tabla `window_state` existe, pero el visor es scrcpy y no se aplica tamaño/posición al reabrir. |
 | Activity principal | **Parcial** | `apk-info` devuelve la primera activity de launcher (F-Droid → `IconActivity`); `--start-app` funciona, pero la metadata no siempre es la principal. |
 | Sesiones tras reiniciar el daemon | **Parcial** | Si `apkstartd` muere, los scrcpy hijos sobreviven pero el daemon los pierde; falta tabla `sessions` v3 y adopción. |
+| Micrófono del host | **Parcial** | El flag `-allow-host-audio` y `QEMU_AUDIO_IN_DRV=alsa` están puestos; el backend `pa` del emulador falla con PipeWire y falta una prueba audible formal. |
 
 ---
 
